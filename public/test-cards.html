@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nextra Cards Test</title>
+    <link rel="stylesheet" href="/styles/nextra-overrides.css">
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+            margin: 2rem;
+            background: #fff;
+        }
+        .dark {
+            background: #111;
+            color: #fff;
+        }
+        
+        /* Basic card structure for testing */
+        .nextra-cards {
+            display: grid;
+            gap: 1rem;
+            margin: 2rem 0;
+        }
+        
+        .nextra-card {
+            display: block;
+            padding: 1rem;
+            border: 1px solid #e5e7eb;
+            border-radius: 0.5rem;
+            text-decoration: none;
+            color: inherit;
+            cursor: pointer;
+        }
+        
+        .nextra-card h3 {
+            margin: 0 0 0.5rem 0;
+            font-size: 1.125rem;
+        }
+        
+        .nextra-card p {
+            margin: 0;
+            color: #6b7280;
+        }
+    </style>
+</head>
+<body>
+    <h1>Nextra Cards Padding Test</h1>
+    
+    <h2>Before CSS Overrides (Basic styling)</h2>
+    <div class="nextra-cards" style="grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));">
+        <a href="#" class="nextra-card" style="padding: 0.5rem;">
+            <h3>Low Padding</h3>
+            <p>This card has minimal padding. Text appears very close to the borders, which can look cramped and hard to read.</p>
+        </a>
+        <a href="#" class="nextra-card" style="padding: 0.5rem;">
+            <h3>Accessibility Issue</h3>
+            <p>Poor spacing makes it difficult to focus on individual cards and can impact readability significantly.</p>
+        </a>
+        <a href="#" class="nextra-card" style="padding: 0.5rem;">
+            <h3>User Experience</h3>
+            <p>Cards with insufficient padding create a cluttered appearance and poor visual hierarchy.</p>
+        </a>
+    </div>
+
+    <h2>After CSS Overrides (Improved)</h2>
+    <div class="nextra-cards">
+        <a href="#" class="nextra-card">
+            <h3>Proper Padding</h3>
+            <p>This card has appropriate padding (1.5rem) that provides breathing room and better visual separation from the borders.</p>
+        </a>
+        <a href="#" class="nextra-card">
+            <h3>Better Readability</h3>
+            <p>Generous padding improves text readability and makes the content easier to scan and focus on.</p>
+        </a>
+        <a href="#" class="nextra-card">
+            <h3>Enhanced UX</h3>
+            <p>Well-spaced cards create a more professional appearance and better visual hierarchy for documentation.</p>
+        </a>
+    </div>
+
+    <h2>Dark Mode Test</h2>
+    <div class="dark" style="padding: 2rem; margin: 2rem -2rem; background: #111;">
+        <div class="nextra-cards">
+            <a href="#" class="nextra-card">
+                <h3>Dark Mode Card</h3>
+                <p>Cards should maintain proper padding and contrast in dark mode with appropriate background colors.</p>
+            </a>
+            <a href="#" class="nextra-card">
+                <h3>Hover Effects</h3>
+                <p>Hover states should provide visual feedback with subtle transformations and color changes.</p>
+            </a>
+        </div>
+    </div>
+
+    <script>
+        // Add some interactivity to test hover effects
+        document.querySelectorAll('.nextra-card').forEach(card => {
+            card.addEventListener('click', (e) => {
+                e.preventDefault();
+                card.style.transform = 'scale(0.98)';
+                setTimeout(() => {
+                    card.style.transform = '';
+                }, 150);
+            });
+        });
+    </script>
+</body>
+</html>
