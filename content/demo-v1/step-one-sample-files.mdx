@@ -1,0 +1,623 @@
+## Requirements
+
+- **Static Storage**: Need to have 2 predefined files available under "All Files"
+- **File Structure**: Predefined files structure in the frontend
+- **Caching**: Backend cache with preprocessed static file data
+
+## Technical Approach
+
+### Frontend Implementation
+
+#### Component Architecture
+- **Dependent Component**: `FileList`
+- **New Prop**: `type: "demo"`
+- **Behavior**: When `type="demo"`, display predefined static files from cached backend data
+
+#### Data Structure
+
+The static file information will follow this standardized structure:
+
+```typescript
+interface DemoFile {
+  file_id: string;
+  file_name: string;
+  format: string;
+  uploaded_at: string;
+  total_pages: number;
+  selected_pages: number[];
+  size: number;
+}
+
+type DemoFiles = DemoFile[];
+```
+
+#### Example Data
+```json
+[
+  {
+    "file_id": "demo_001",
+    "file_name": "sample_document_1.pdf",
+    "format": "pdf",
+    "uploaded_at": "2024-01-01T00:00:00Z",
+    "total_pages": 25,
+    "selected_pages": [1, 2, 3],
+    "size": 1024000
+  },
+  {
+    "file_id": "demo_002", 
+    "file_name": "sample_spreadsheet.xlsx",
+    "format": "xlsx",
+    "uploaded_at": "2024-01-01T00:00:00Z",
+    "total_pages": 10,
+    "selected_pages": [1, 2],
+    "size": 512000
+  }
+]
+```
+
+### Backend Implementation
+
+#### Caching Strategy
+- Store preprocessed demo file metadata in backend cache
+- Ensure fast retrieval for demo experience
+- Maintain consistency with actual file processing pipeline
+
+#### File Management
+- Maintain 2 static demo files as specified
+- Preprocess files during system initialization
+- Store metadata in cache for quick access
+
+#### File Detail View API
+- **Endpoint**: `/api/persistent/file-info?file_id=${fileId}`
+- **Purpose**: Retrieve detailed file information when user clicks on a file
+- **Integration**: Used by file detail page at `/demo/[fileId]` route
+- **Response Structure**: Returns comprehensive file data including metadata, processing status, and content details
+
+```json
+{
+    "file_id": "6895d1f8c23250c7e31b29fa",
+    "user_id": "2",
+    "file_name": "Innovash Drawings (1).pdf",
+    "pages": [
+        {
+            "page_no": 1,
+            "processedAt": "2025-08-08T10:31:30.600000",
+            "image": "base64:wO8qtqzgtb3gwAAAABJRU5ErkJggg==",
+            "dpi": 275,
+            "page_data": [
+                {
+                    "rotation": 0,
+                    "type": "table_extraction",
+                    "initialBBox": [
+                        3993,
+                        108,
+                        4444,
+                        883
+                    ],
+                    "createdAt": "2025-08-08T10:44:21.467000",
+                    "updatedAt": "2025-08-08T10:44:21.467000",
+                    "content": {
+                        "raw_response": "<initial_observation>\n- This is a bordered table; vertical and horizontal lines clearly separate rows and columns.\n- Total rows: 21 (including the header row).\n- Total columns: 2 (the widest point is at the header).\n- Row & column count is consistent; no variation across the table.\n- Column headers: Only one combined header, \"ABBREVIATIONS USED\" spanning both columns in the first row.\n- No multi-level headers present other than the column spanning header.\n- No specific row header columns; each abbreviation is defined in the left-most column.\n- No cells extend across multiple rows, but the header spans across both columns.\n- No column or row spans among data rows.\n- All rows have two cells: abbreviation and its description.\n- All abbreviations and descriptions are text, no empty cells found.\n- No diagrams, images, or special formatting within the cells.\n- All data seem to align with their labels, and abbreviation-data pairs are clear.\n</initial_observation>\n\n<extraction>\n<final>\n<table>\n  <tr>\n    <td colspan=\"2\">ABBREVIATIONS USED</td>\n  </tr>\n  <tr>\n    <td>WW</td>\n    <td>Shaft Width</td>\n  </tr>\n  <tr>\n    <td>WD</td>\n    <td>Shaft Depth</td>\n  </tr>\n  <tr>\n    <td>BB</td>\n    <td>Car Width</td>\n  </tr>\n  <tr>\n    <td>DD</td>\n    <td>Car Depth</td>\n  </tr>\n  <tr>\n    <td>DBG</td>\n    <td>Distance Between Guides</td>\n  </tr>\n  <tr>\n    <td>LL</td>\n    <td>Door Opening Width</td>\n  </tr>\n  <tr>\n    <td>HH</td>\n    <td>Door Opening Height</td>\n  </tr>\n  <tr>\n    <td>LR</td>\n    <td>Structural Opening Width</td>\n  </tr>\n  <tr>\n    <td>HR</td>\n    <td>Structural Opening Height</td>\n  </tr>\n  <tr>\n    <td>CH</td>\n    <td>Car Internal Height</td>\n  </tr>\n  <tr>\n    <td>CL</td>\n    <td>Centre Line</td>\n  </tr>\n  <tr>\n    <td>PH</td>\n    <td>Pit Height</td>\n  </tr>\n  <tr>\n    <td>SH</td>\n    <td>Headroom</td>\n  </tr>\n  <tr>\n    <td>H</td>\n    <td>Travel</td>\n  </tr>\n  <tr>\n    <td>HT</td>\n    <td>Counterweight Frame Height</td>\n  </tr>\n  <tr>\n    <td>COP</td>\n    <td>Car Operating Panel</td>\n  </tr>\n  <tr>\n    <td>SS</td>\n    <td>Flooring Thickness</td>\n  </tr>\n  <tr>\n    <td>UF</td>\n    <td>Car Shell Floor Thickness</td>\n  </tr>\n  <tr>\n    <td>MW</td>\n    <td>Machine Room Width</td>\n  </tr>\n  <tr>\n    <td>MD</td>\n    <td>Machine Room Depth</td>\n  </tr>\n</table>\n</final>",
+                        "extracted_result": {
+                            "title": "",
+                            "description": "",
+                            "html": "<table><tr>\n    <td colspan=\"2\">ABBREVIATIONS USED</td>\n  </tr>\n  <tr>\n    <td>WW</td>\n    <td>Shaft Width</td>\n  </tr>\n  <tr>\n    <td>WD</td>\n    <td>Shaft Depth</td>\n  </tr>\n  <tr>\n    <td>BB</td>\n    <td>Car Width</td>\n  </tr>\n  <tr>\n    <td>DD</td>\n    <td>Car Depth</td>\n  </tr>\n  <tr>\n    <td>DBG</td>\n    <td>Distance Between Guides</td>\n  </tr>\n  <tr>\n    <td>LL</td>\n    <td>Door Opening Width</td>\n  </tr>\n  <tr>\n    <td>HH</td>\n    <td>Door Opening Height</td>\n  </tr>\n  <tr>\n    <td>LR</td>\n    <td>Structural Opening Width</td>\n  </tr>\n  <tr>\n    <td>HR</td>\n    <td>Structural Opening Height</td>\n  </tr>\n  <tr>\n    <td>CH</td>\n    <td>Car Internal Height</td>\n  </tr>\n  <tr>\n    <td>CL</td>\n    <td>Centre Line</td>\n  </tr>\n  <tr>\n    <td>PH</td>\n    <td>Pit Height</td>\n  </tr>\n  <tr>\n    <td>SH</td>\n    <td>Headroom</td>\n  </tr>\n  <tr>\n    <td>H</td>\n    <td>Travel</td>\n  </tr>\n  <tr>\n    <td>HT</td>\n    <td>Counterweight Frame Height</td>\n  </tr>\n  <tr>\n    <td>COP</td>\n    <td>Car Operating Panel</td>\n  </tr>\n  <tr>\n    <td>SS</td>\n    <td>Flooring Thickness</td>\n  </tr>\n  <tr>\n    <td>UF</td>\n    <td>Car Shell Floor Thickness</td>\n  </tr>\n  <tr>\n    <td>MW</td>\n    <td>Machine Room Width</td>\n  </tr>\n  <tr>\n    <td>MD</td>\n    <td>Machine Room Depth</td>\n  </tr></table>"
+                        }
+                    }
+                }
+            ]
+        },
+        {
+            "page_no": 7,
+            "processedAt": "2025-08-08T10:35:21.869000",
+            "image": "base64:/b4f09fWCy0dNbeAAAAAElFTkSuQmCC",
+            "dpi": 275,
+            "page_data": [
+                {
+                    "rotation": 0,
+                    "type": "diagram_extraction",
+                    "initialBBox": [
+                        1583,
+                        250,
+                        2776,
+                        1292
+                    ],
+                    "createdAt": "2025-08-08T10:35:27.840000",
+                    "updatedAt": "2025-08-08T10:35:49.470000",
+                    "content": {
+                        "DiagramTitle": "Lift Plan - Output Reactor Cabinet & Controller & ARD",
+                        "View": "Top View (Plan View)",
+                        "diag_description": "This diagram provides a detailed lift plan for an output reactor cabinet, controller, and ARD assembly. It shows the spatial arrangement and key dimensions of the lift area, including the refuge space, control panels, and associated equipment. The drawing includes comprehensive linear measurements for the shaft, door, and cabinet, as well as the location of critical components. The plan is annotated with callouts for specific features and provides clear information for installation or construction teams regarding the required clearances and placements.",
+                        "LinearDimensions": {
+                            "length_measurements": [
+                                "SW: 2700",
+                                "CG: 2030",
+                                "DW: 1100",
+                                "CW: 1900",
+                                "CD: 1600",
+                                "SD: 2200",
+                                "refuge space W700xD500xH1000",
+                                "1265",
+                                "1250",
+                                "400",
+                                "400",
+                                "346",
+                                "487",
+                                "990",
+                                "730",
+                                "185",
+                                "89",
+                                "89",
+                                "146",
+                                "144",
+                                "86"
+                            ],
+                            "width_measurements": [
+                                "SW: 2700",
+                                "CW: 1900",
+                                "DW: 1100",
+                                "refuge space W700"
+                            ],
+                            "height_measurements": [
+                                "SD: 2200",
+                                "refuge space H1000"
+                            ],
+                            "depth_measurements": [
+                                "CD: 1600",
+                                "refuge space D500"
+                            ],
+                            "thickness_markings": [],
+                            "distance_callouts": [],
+                            "offset_dimensions": [],
+                            "center_to_center_distances": [],
+                            "overall_length_markings": [],
+                            "pitch_measurements": []
+                        },
+                        "ToleranceMarkings": {
+                            "plus_minus_tolerances": [],
+                            "bilateral_tolerances": [],
+                            "unilateral_tolerances": [],
+                            "limit_dimensions": [],
+                            "basic_dimensions": [],
+                            "reference_dimensions": []
+                        },
+                        "RadialCircularDimensions": {
+                            "radius_callouts": [],
+                            "sphere_radius": [],
+                            "controlled_radius": [],
+                            "fillet_radius": [],
+                            "diameter_callouts": [],
+                            "sphere_diameter": [],
+                            "bolt_circle_diameter": [],
+                            "pitch_circle_diameter": [],
+                            "arc_length": [],
+                            "chord_length": []
+                        },
+                        "AngularDimensions": {
+                            "degree_markings": [],
+                            "angle_specifications": [],
+                            "chamfer_angles": [],
+                            "bevel_angles": [],
+                            "taper_angles": [],
+                            "slope_markings": [],
+                            "included_angles": []
+                        },
+                        "SurfaceRoughnessValues": {
+                            "ra_values": [],
+                            "rz_measurements": [],
+                            "surface_finish_numbers": [],
+                            "rms_values": []
+                        },
+                        "MachiningRequirements": {
+                            "machining_allowance": [],
+                            "finish_all_over": [],
+                            "as_cast": [],
+                            "as_forged": [],
+                            "as_rolled": []
+                        },
+                        "WeldSizeMarkings": {
+                            "fillet_weld_sizes": [],
+                            "groove_weld_penetration": [],
+                            "weld_length": [],
+                            "intermittent_spacing": []
+                        },
+                        "WeldingProcessNotes": {
+                            "process_specifications": [],
+                            "electrode_callouts": [],
+                            "welding_position": [],
+                            "ndt_requirements": []
+                        },
+                        "ISOToleranceGrades": {
+                            "hole_tolerances": [],
+                            "shaft_tolerances": [],
+                            "fit_callouts": []
+                        },
+                        "ANSIToleranceClasses": {
+                            "running_fits": [],
+                            "sliding_fits": [],
+                            "transition_fits": [],
+                            "force_fits": []
+                        },
+                        "PositionTolerances": {
+                            "position_callouts": [],
+                            "true_position": [],
+                            "concentricity": []
+                        },
+                        "FormOrientationTolerances": {
+                            "flatness": [],
+                            "straightness": [],
+                            "parallelism": [],
+                            "perpendicularity": [],
+                            "circularity": []
+                        },
+                        "Callouts": {
+                            "Balloon callouts": [
+                                "3.1",
+                                "3.2",
+                                "3.3",
+                                "3.4",
+                                "3.5",
+                                "3.6"
+                            ],
+                            "Leader callouts": [
+                                "Output reactor cabinet&Controller&ARD",
+                                "refuge space W700xD500xH1000",
+                                "COP"
+                            ]
+                        }
+                    }
+                },
+                {
+                    "rotation": 0,
+                    "type": "diagram_extraction",
+                    "initialBBox": [
+                        509,
+                        1279,
+                        1510,
+                        2839
+                    ],
+                    "createdAt": "2025-08-08T10:35:29.153000",
+                    "updatedAt": "2025-08-08T10:35:45.853000",
+                    "content": {
+                        "DiagramTitle": "Elevator Shaft Vertical Section",
+                        "View": "Vertical Section",
+                        "diag_description": "This diagram presents a vertical section view of an elevator shaft, showing the arrangement of the elevator car, counterweight, guide rails, and pit structure. Key vertical dimensions such as shaft height, overhead clearance, car height, and pit depth are clearly marked. The drawing provides a comprehensive understanding of the spatial requirements and clearances necessary for the installation and operation of the elevator system. The section view is essential for construction planning, ensuring that all components fit within the designated shaft and that safety and operational standards are met.",
+                        "LinearDimensions": {
+                            "length_measurements": [],
+                            "width_measurements": [],
+                            "height_measurements": [
+                                "SH = 10000",
+                                "OH = 4250",
+                                "CH = 2450",
+                                "TH = 4350",
+                                "PD = 1400",
+                                "150"
+                            ],
+                            "depth_measurements": [],
+                            "thickness_markings": [],
+                            "distance_callouts": [],
+                            "offset_dimensions": [],
+                            "center_to_center_distances": [],
+                            "overall_length_markings": [],
+                            "pitch_measurements": []
+                        },
+                        "ToleranceMarkings": {
+                            "plus_minus_tolerances": [],
+                            "bilateral_tolerances": [],
+                            "unilateral_tolerances": [],
+                            "limit_dimensions": [],
+                            "basic_dimensions": [],
+                            "reference_dimensions": []
+                        },
+                        "RadialCircularDimensions": {
+                            "radius_callouts": [],
+                            "sphere_radius": [],
+                            "controlled_radius": [],
+                            "fillet_radius": [],
+                            "diameter_callouts": [],
+                            "sphere_diameter": [],
+                            "bolt_circle_diameter": [],
+                            "pitch_circle_diameter": [],
+                            "arc_length": [],
+                            "chord_length": []
+                        },
+                        "AngularDimensions": {
+                            "degree_markings": [],
+                            "angle_specifications": [],
+                            "chamfer_angles": [],
+                            "bevel_angles": [],
+                            "taper_angles": [],
+                            "slope_markings": [],
+                            "included_angles": []
+                        },
+                        "SurfaceRoughnessValues": {
+                            "ra_values": [],
+                            "rz_measurements": [],
+                            "surface_finish_numbers": [],
+                            "rms_values": []
+                        },
+                        "MachiningRequirements": {
+                            "machining_allowance": [],
+                            "finish_all_over": [],
+                            "as_cast": [],
+                            "as_forged": [],
+                            "as_rolled": []
+                        },
+                        "WeldSizeMarkings": {
+                            "fillet_weld_sizes": [],
+                            "groove_weld_penetration": [],
+                            "weld_length": [],
+                            "intermittent_spacing": []
+                        },
+                        "WeldingProcessNotes": {
+                            "process_specifications": [],
+                            "electrode_callouts": [],
+                            "welding_position": [],
+                            "ndt_requirements": []
+                        },
+                        "ISOToleranceGrades": {
+                            "hole_tolerances": [],
+                            "shaft_tolerances": [],
+                            "fit_callouts": []
+                        },
+                        "ANSIToleranceClasses": {
+                            "running_fits": [],
+                            "sliding_fits": [],
+                            "transition_fits": [],
+                            "force_fits": []
+                        },
+                        "PositionTolerances": {
+                            "position_callouts": [],
+                            "true_position": [],
+                            "concentricity": []
+                        },
+                        "FormOrientationTolerances": {
+                            "flatness": [],
+                            "straightness": [],
+                            "parallelism": [],
+                            "perpendicularity": [],
+                            "circularity": []
+                        },
+                        "Callouts": {
+                            "Balloon callouts": [
+                                "1.2"
+                            ],
+                            "Leader callouts": []
+                        }
+                    }
+                },
+                {
+                    "rotation": 0,
+                    "type": "diagram_extraction",
+                    "initialBBox": [
+                        506,
+                        211,
+                        1399,
+                        1193
+                    ],
+                    "createdAt": "2025-08-08T10:35:30.108000",
+                    "updatedAt": "2025-08-08T10:35:52.765000",
+                    "content": {
+                        "DiagramTitle": "Pit Plan",
+                        "View": "Top view (plan view)",
+                        "diag_description": "This diagram presents a top (plan) view of a pit layout, showing the overall dimensions, wall thickness, and internal features such as anchor points (P1, P2, P3, P4, P7), a designated refuge space, and several component callouts (4.1, 4.2, 4.3, 4.4). The pit is rectangular, with clear dimensioning for both the internal and external boundaries, as well as the positions of key features. The refuge space is centrally located and dimensioned. The drawing is intended for construction or installation reference, ensuring correct placement and sizing of all elements.",
+                        "LinearDimensions": {
+                            "length_measurements": [
+                                "SW: 2700",
+                                "1265",
+                                "1250",
+                                "185"
+                            ],
+                            "width_measurements": [
+                                "SD: 2200",
+                                "487",
+                                "990"
+                            ],
+                            "height_measurements": [],
+                            "depth_measurements": [],
+                            "thickness_markings": [
+                                "200 (wall thickness)"
+                            ],
+                            "distance_callouts": [],
+                            "offset_dimensions": [],
+                            "center_to_center_distances": [],
+                            "overall_length_markings": [
+                                "SW: 2700",
+                                "SD: 2200"
+                            ],
+                            "pitch_measurements": []
+                        },
+                        "ToleranceMarkings": {
+                            "plus_minus_tolerances": [],
+                            "bilateral_tolerances": [],
+                            "unilateral_tolerances": [],
+                            "limit_dimensions": [],
+                            "basic_dimensions": [],
+                            "reference_dimensions": []
+                        },
+                        "RadialCircularDimensions": {
+                            "radius_callouts": [],
+                            "sphere_radius": [],
+                            "controlled_radius": [],
+                            "fillet_radius": [],
+                            "diameter_callouts": [],
+                            "sphere_diameter": [],
+                            "bolt_circle_diameter": [],
+                            "pitch_circle_diameter": [],
+                            "arc_length": [],
+                            "chord_length": []
+                        },
+                        "AngularDimensions": {
+                            "degree_markings": [],
+                            "angle_specifications": [],
+                            "chamfer_angles": [],
+                            "bevel_angles": [],
+                            "taper_angles": [],
+                            "slope_markings": [],
+                            "included_angles": []
+                        },
+                        "SurfaceRoughnessValues": {
+                            "ra_values": [],
+                            "rz_measurements": [],
+                            "surface_finish_numbers": [],
+                            "rms_values": []
+                        },
+                        "MachiningRequirements": {
+                            "machining_allowance": [],
+                            "finish_all_over": [],
+                            "as_cast": [],
+                            "as_forged": [],
+                            "as_rolled": []
+                        },
+                        "WeldSizeMarkings": {
+                            "fillet_weld_sizes": [],
+                            "groove_weld_penetration": [],
+                            "weld_length": [],
+                            "intermittent_spacing": []
+                        },
+                        "WeldingProcessNotes": {
+                            "process_specifications": [],
+                            "electrode_callouts": [],
+                            "welding_position": [],
+                            "ndt_requirements": []
+                        },
+                        "ISOToleranceGrades": {
+                            "hole_tolerances": [],
+                            "shaft_tolerances": [],
+                            "fit_callouts": []
+                        },
+                        "ANSIToleranceClasses": {
+                            "running_fits": [],
+                            "sliding_fits": [],
+                            "transition_fits": [],
+                            "force_fits": []
+                        },
+                        "PositionTolerances": {
+                            "position_callouts": [],
+                            "true_position": [],
+                            "concentricity": []
+                        },
+                        "FormOrientationTolerances": {
+                            "flatness": [],
+                            "straightness": [],
+                            "parallelism": [],
+                            "perpendicularity": [],
+                            "circularity": []
+                        },
+                        "Callouts": {
+                            "Balloon callouts": [
+                                "4.1",
+                                "4.2",
+                                "4.3",
+                                "4.4"
+                            ],
+                            "Leader callouts": [
+                                "P1",
+                                "P2",
+                                "P3",
+                                "P4",
+                                "P7",
+                                "refuge space W1000xD700xH500"
+                            ]
+                        }
+                    }
+                },
+                {
+                    "rotation": 0,
+                    "type": "table_extraction",
+                    "initialBBox": [
+                        3571,
+                        2856,
+                        4514,
+                        3171
+                    ],
+                    "createdAt": "2025-08-08T10:35:28.726000",
+                    "updatedAt": "2025-08-08T10:35:28.726000",
+                    "content": {
+                        "raw_response": "<initial_observation>\n- Table boundaries: The table is fully bordered.\n- Number of rows: 4 rows (including header row).\n- Number of columns: Widest point is 5 columns (due to merged cells in header and data section).\n- Row/column count varies: Yes, due to merged (spanned) cells, columns are collapsed and shifted (especially in rows 2, 3, and 4).\n- Column headers:\n  * \"Page/Pages\"\n  * \"SYS Version\"\n  * \"GAD Version\"\n- Multi-level headers:\n  * Under \"SYS Version\": \"Signature\", \"Date\"\n  * Under \"GAD Version\": \"VIEW Project No.\" (row 2), \"Drawing No.\" (row 3)\n- Row headers/labels on left:\n  * \"Designed\"\n  * \"Checked\"\n- Spanned cells:\n  * First row: \"Page/Pages\" (leftmost), \"SYS Version\" (center), \"GAD Version\" (rightmost merged), all span vertically downward.\n  * Second row: \"Signature\" and \"Date\" (under \"SYS Version\" header)\n  * Second row: \"VIEW Project No.\" (under \"GAD Version\", spans two columns to the right)\n  * Third row: \"Designed\" and \"Checked\" are leftmost labels.\n  * Third and Fourth rows: Merge under \"GAD Version\": \"Drawing No.\" (row 3, spans two columns to the right)\n  * There is a diagonal split in the cell under \"Page/Pages\" for row 2 but \"Signature\" and \"Date\" only occupy the upper right of the SYS Version column.\n- Empty cells: The table contains multiple empty cells, especially in the cells adjacent to \"Designed\" and \"Checked\".\n- Header-to-data alignment: Header cells align with the appropriate columns in the table.\nReflection: The main complexity arises from the merged cells in the header row and the spanned \"VIEW Project No.\" and \"Drawing No.\" cells under \"GAD Version\". There is a diagonal line for the \"Signature\" area, but in HTML, this will remain as a single cell for clarity. The leftmost column with \"Designed\" and \"Checked\" acts as row headers for those rows.\n</initial_observation>\n\n<extraction>\n<final>\n<table>\n  <tr>\n    <td rowspan=\"4\">Page/Pages</td>\n    <td colspan=\"2\">SYS Version</td>\n    <td colspan=\"2\">GAD Version</td>\n  </tr>\n  <tr>\n    <td>Signature</td>\n    <td>Date</td>\n    <td colspan=\"2\">VIEW Project No.</td>\n  </tr>\n  <tr>\n    <td>Designed</td>\n    <td></td>\n    <td></td>\n    <td colspan=\"2\">Drawing No.</td>\n  </tr>\n  <tr>\n    <td>Checked</td>\n    <td></td>\n    <td></td>\n    <td></td>\n    <td></td>\n  </tr>\n</table>\n</final>",
+                        "extracted_result": {
+                            "title": "",
+                            "description": "",
+                            "html": "<table><tr>\n    <td rowspan=\"4\">Page/Pages</td>\n    <td colspan=\"2\">SYS Version</td>\n    <td colspan=\"2\">GAD Version</td>\n  </tr>\n  <tr>\n    <td>Signature</td>\n    <td>Date</td>\n    <td colspan=\"2\">VIEW Project No.</td>\n  </tr>\n  <tr>\n    <td>Designed</td>\n    <td></td>\n    <td></td>\n    <td colspan=\"2\">Drawing No.</td>\n  </tr>\n  <tr>\n    <td>Checked</td>\n    <td></td>\n    <td></td>\n    <td></td>\n    <td></td>\n  </tr></table>"
+                        }
+                    }
+                },
+                {
+                    "rotation": 0,
+                    "type": "table_extraction",
+                    "initialBBox": [
+                        3012,
+                        74,
+                        3542,
+                        1528
+                    ],
+                    "createdAt": "2025-08-08T10:35:30.887000",
+                    "updatedAt": "2025-08-08T10:35:30.887000",
+                    "content": {
+                        "raw_response": "<initial_observation>\n- Table boundaries: The table is clearly bordered, all rows and columns are separated by lines.\n- Total rows: There are 37 rows in total, including the title/metadata and all data entries.\n- Total columns: The table is consistently 2 columns wide at the widest part (except metadata lines which are single-cell).\n- Row/column count consistency: The data sections are all 2 columns wide. The introductory metadata/notes are single-row, single-column merged cells.\n- Column headers: This table does not have explicit headers for columns, but the structure is:\n  - First column: Item (with section/subsection numbering)\n  - Second column: B or T (indicator for 'Builder' or 'TKE')\n- Multi-level headers: Section headers like \"1. Machine Room/Over Head\", \"2. Construction\", etc, serve as row labels for item grouping.\n- Row headers/labels: The leftmost column contains both section titles and item names.\n- Spanned cells: The metadata/title cells at the top span both columns (colspan=2)\n- No cells extend across multiple rows, only multiple columns for some top cells.\n- Empty cells: No empty cells present, all have content.\n- Header-to-data alignment: Aligned well, each item and its B/T indication in a row.\n- Row consistency: Each data entry row is two columns wide except sectional titles and top notes.\n- Notes: At the top, three lines are for metadata/title, all spanning full table width (colspan=2)\n</initial_observation>\n\n<final>\n<table>\n  <tr>\n    <td colspan=\"2\">GUIDANCE NOTES/ITEMS</td>\n  </tr>\n  <tr>\n    <td colspan=\"2\">B=to be performed or delivered by the builder</td>\n  </tr>\n  <tr>\n    <td colspan=\"2\">T=supplied by TKE</td>\n  </tr>\n  <tr>\n    <td colspan=\"2\">1. Machine Room/Over Head</td>\n  </tr>\n  <tr>\n    <td>1.1 Ventilation</td>\n    <td>B</td>\n  </tr>\n  <tr>\n    <td>1.2 Fan</td>\n    <td>B</td>\n  </tr>\n  <tr>\n    <td>1.3 Socket & Light switch</td>\n    <td>B</td>\n  </tr>\n  <tr>\n    <td>1.4 Light Switch</td>\n    <td>B</td>\n  </tr>\n  <tr>\n    <td>1.6 Emergency stop button</td>\n    <td>T</td>\n  </tr>\n  <tr>\n    <td>1.7 resistance box</td>\n    <td>T</td>\n  </tr>\n  <tr>\n    <td>1.8 Power Supply</td>\n    <td>B</td>\n  </tr>\n  <tr>\n    <td colspan=\"2\">2. Construction</td>\n  </tr>\n  <tr>\n    <td>2.1 Concrete Beam (Machine Frame Installation)</td>\n    <td>B</td>\n  </tr>\n  <tr>\n    <td>2.2 Hook</td>\n    <td>B</td>\n  </tr>\n  <tr>\n    <td>2.3 escape ladder from car top (if needed)</td>\n    <td>T</td>\n  </tr>\n  <tr>\n    <td>2.4 12mm Steel plate</td>\n    <td>B</td>\n  </tr>\n  <tr>\n    <td>2.5 Both side wall opening (filled or concrete placing after installation)</td>\n    <td>B</td>\n  </tr>\n  <tr>\n    <td>2.6 Concrete Beam 200*400/Separator Beam</td>\n    <td>B</td>\n  </tr>\n  <tr>\n    <td colspan=\"2\">3. Shaft</td>\n  </tr>\n  <tr>\n    <td>3.1 Shaft light</td>\n    <td>T</td>\n  </tr>\n  <tr>\n    <td>3.2 Car Center</td>\n    <td>T</td>\n  </tr>\n  <tr>\n    <td>3.3 Door Center</td>\n    <td>T</td>\n  </tr>\n  <tr>\n    <td>3.4 Floor Selector Assy and Final Limit Switch</td>\n    <td>T</td>\n  </tr>\n  <tr>\n    <td>3.5 Traveling cable</td>\n    <td>T</td>\n  </tr>\n  <tr>\n    <td>3.6 Car Ladder</td>\n    <td>T</td>\n  </tr>\n  <tr>\n    <td colspan=\"2\">4. Pit</td>\n  </tr>\n  <tr>\n    <td>4.1 Pit ladder</td>\n    <td>T</td>\n  </tr>\n  <tr>\n    <td>4.2 Pit inspection box</td>\n    <td>T</td>\n  </tr>\n  <tr>\n    <td>4.3 Shaft Lights Switch</td>\n    <td>T</td>\n  </tr>\n  <tr>\n    <td>4.4 Emergency stop button</td>\n    <td>T</td>\n  </tr>\n  <tr>\n    <td>4.5 CWT side Guard (if needed)</td>\n    <td>B</td>\n  </tr>\n  <tr>\n    <td>4.6 Shaft Guard</td>\n    <td>B</td>\n  </tr>\n  <tr>\n    <td colspan=\"2\">5. Entrance</td>\n  </tr>\n  <tr>\n    <td>5.1 400mm-high concrete beam above door structure opening</td>\n    <td>B</td>\n  </tr>\n  <tr>\n    <td>5.2 two concrete door jambs</td>\n    <td>B</td>\n  </tr>\n  <tr>\n    <td>5.3 LIOP/(LIP+LOP) hole</td>\n    <td>B</td>\n  </tr>\n  <tr>\n    <td>5.4 Indicator hole</td>\n    <td>B</td>\n  </tr>\n  <tr>\n    <td>5.5 Fire recall switch (Fire service floor only) hole</td>\n    <td>B</td>\n  </tr>\n  <tr>\n    <td>5.6 Machine Cabinet</td>\n    <td>B</td>\n  </tr>\n  <tr>\n    <td>5.7 Rescue device cabinet hole</td>\n    <td>B</td>\n  </tr>\n  <tr>\n    <td>5.8 Antenna box hole</td>\n    <td>B</td>\n  </tr>\n  <tr>\n    <td>5.9 Intercom alarm device assy hole</td>\n    <td>B</td>\n  </tr>\n</table>\n</final>",
+                        "extracted_result": {
+                            "title": "",
+                            "description": "",
+                            "html": "<table><tr>\n    <td colspan=\"2\">GUIDANCE NOTES/ITEMS</td>\n  </tr>\n  <tr>\n    <td colspan=\"2\">B=to be performed or delivered by the builder</td>\n  </tr>\n  <tr>\n    <td colspan=\"2\">T=supplied by TKE</td>\n  </tr>\n  <tr>\n    <td colspan=\"2\">1. Machine Room/Over Head</td>\n  </tr>\n  <tr>\n    <td>1.1 Ventilation</td>\n    <td>B</td>\n  </tr>\n  <tr>\n    <td>1.2 Fan</td>\n    <td>B</td>\n  </tr>\n  <tr>\n    <td>1.3 Socket & Light switch</td>\n    <td>B</td>\n  </tr>\n  <tr>\n    <td>1.4 Light Switch</td>\n    <td>B</td>\n  </tr>\n  <tr>\n    <td>1.6 Emergency stop button</td>\n    <td>T</td>\n  </tr>\n  <tr>\n    <td>1.7 resistance box</td>\n    <td>T</td>\n  </tr>\n  <tr>\n    <td>1.8 Power Supply</td>\n    <td>B</td>\n  </tr>\n  <tr>\n    <td colspan=\"2\">2. Construction</td>\n  </tr>\n  <tr>\n    <td>2.1 Concrete Beam (Machine Frame Installation)</td>\n    <td>B</td>\n  </tr>\n  <tr>\n    <td>2.2 Hook</td>\n    <td>B</td>\n  </tr>\n  <tr>\n    <td>2.3 escape ladder from car top (if needed)</td>\n    <td>T</td>\n  </tr>\n  <tr>\n    <td>2.4 12mm Steel plate</td>\n    <td>B</td>\n  </tr>\n  <tr>\n    <td>2.5 Both side wall opening (filled or concrete placing after installation)</td>\n    <td>B</td>\n  </tr>\n  <tr>\n    <td>2.6 Concrete Beam 200*400/Separator Beam</td>\n    <td>B</td>\n  </tr>\n  <tr>\n    <td colspan=\"2\">3. Shaft</td>\n  </tr>\n  <tr>\n    <td>3.1 Shaft light</td>\n    <td>T</td>\n  </tr>\n  <tr>\n    <td>3.2 Car Center</td>\n    <td>T</td>\n  </tr>\n  <tr>\n    <td>3.3 Door Center</td>\n    <td>T</td>\n  </tr>\n  <tr>\n    <td>3.4 Floor Selector Assy and Final Limit Switch</td>\n    <td>T</td>\n  </tr>\n  <tr>\n    <td>3.5 Traveling cable</td>\n    <td>T</td>\n  </tr>\n  <tr>\n    <td>3.6 Car Ladder</td>\n    <td>T</td>\n  </tr>\n  <tr>\n    <td colspan=\"2\">4. Pit</td>\n  </tr>\n  <tr>\n    <td>4.1 Pit ladder</td>\n    <td>T</td>\n  </tr>\n  <tr>\n    <td>4.2 Pit inspection box</td>\n    <td>T</td>\n  </tr>\n  <tr>\n    <td>4.3 Shaft Lights Switch</td>\n    <td>T</td>\n  </tr>\n  <tr>\n    <td>4.4 Emergency stop button</td>\n    <td>T</td>\n  </tr>\n  <tr>\n    <td>4.5 CWT side Guard (if needed)</td>\n    <td>B</td>\n  </tr>\n  <tr>\n    <td>4.6 Shaft Guard</td>\n    <td>B</td>\n  </tr>\n  <tr>\n    <td colspan=\"2\">5. Entrance</td>\n  </tr>\n  <tr>\n    <td>5.1 400mm-high concrete beam above door structure opening</td>\n    <td>B</td>\n  </tr>\n  <tr>\n    <td>5.2 two concrete door jambs</td>\n    <td>B</td>\n  </tr>\n  <tr>\n    <td>5.3 LIOP/(LIP+LOP) hole</td>\n    <td>B</td>\n  </tr>\n  <tr>\n    <td>5.4 Indicator hole</td>\n    <td>B</td>\n  </tr>\n  <tr>\n    <td>5.5 Fire recall switch (Fire service floor only) hole</td>\n    <td>B</td>\n  </tr>\n  <tr>\n    <td>5.6 Machine Cabinet</td>\n    <td>B</td>\n  </tr>\n  <tr>\n    <td>5.7 Rescue device cabinet hole</td>\n    <td>B</td>\n  </tr>\n  <tr>\n    <td>5.8 Antenna box hole</td>\n    <td>B</td>\n  </tr>\n  <tr>\n    <td>5.9 Intercom alarm device assy hole</td>\n    <td>B</td>\n  </tr></table>"
+                        }
+                    }
+                },
+                {
+                    "rotation": 0,
+                    "type": "table_extraction",
+                    "initialBBox": [
+                        3572,
+                        86,
+                        4516,
+                        2864
+                    ],
+                    "createdAt": "2025-08-08T10:35:42.693000",
+                    "updatedAt": "2025-08-08T10:35:42.693000",
+                    "content": {
+                        "raw_response": "<initial_observation>\n- Table boundaries: The primary area is well-bordered. Some sections below appear to have less-clear borders, but the top part is a bordered table.\n- Total number of rows: The main bordered portion has 16 parameter rows, 2 force label rows, and 2 additional rows for approval signature and remarks. There are additional rows below for project information.\n- Total number of columns: The main bordered table has 2 columns for parameters. The force table has 13 columns.\n- Row/column count variation: Yes, row structure varies beneath the main parameter section (force table, signature box, remarks area).\n- Column Headers:\n   - Main table: Left column has parameter names, right column has values.\n   - Force table: Top header row (merged over columns): Force(kN)\n   - Force subheader row: P1, P2, P3, P4, P5, P6, P7, P8, P9, P10, P11, Fx, Fy\n- Multi-level headers: “Force(kN)” is merged across all force columns.\n- Row headers: Main table left column acts as row header. Force table has parameter keys as column headers.\n- Spanning cells: Force(kN) spans 13 columns. The large \"Signature and stamp\" cell spans significant width. The \"Remark\" cell also spans width, and the remarks area is merged with a diagram and note on the right.\n- Empty cells: The approval signature cell is mostly empty; project information rows at the bottom are empty. \"Unit No.\" at the bottom left is in a merged cell.\n- Data/metadata: Table header “Main Parameters”, table sections (Force, signature, remarks), diagram, note.\n- Alignment: All parameter names left, values right. Force columns aligned horizontally. Merged cells for signature/remark/note.\n- Consistency: Table rows above are consistent for 2 columns. Force rows have 13 columns.\n</initial_observation>\n\n<extraction>\n<final>\n<table>\n<tr><td colspan=\"2\" style=\"text-align:center;\">Main Parameters</td></tr>\n<tr>\n    <td>Unit No.</td>\n    <td>PL1, PL2</td>\n</tr>\n<tr>\n    <td>Elevator Type</td>\n    <td>Passenger Lift</td>\n</tr>\n<tr>\n    <td>Product Family</td>\n    <td>meta200 MRL</td>\n</tr>\n<tr>\n    <td>Rated Load (kg)</td>\n    <td>1350</td>\n</tr>\n<tr>\n    <td>Rated Speed (m/s)</td>\n    <td>1</td>\n</tr>\n<tr>\n    <td>CWT Location</td>\n    <td>Side</td>\n</tr>\n<tr>\n    <td>Control Style</td>\n    <td>Simplex</td>\n</tr>\n<tr>\n    <td>Floor/Stop/Door</td>\n    <td>2/2/2</td>\n</tr>\n<tr>\n    <td>Door Opening Type</td>\n    <td>Centre opening</td>\n</tr>\n<tr>\n    <td>Door (DW×DH) (mm)</td>\n    <td>1100×2100</td>\n</tr>\n<tr>\n    <td>Car (CW×CD×CH) (mm)</td>\n    <td>1900×1600×2450</td>\n</tr>\n<tr>\n    <td>Suspension Ratio</td>\n    <td>2:1</td>\n</tr>\n<tr>\n    <td>Traction Machine</td>\n    <td>Gearless</td>\n</tr>\n<tr>\n    <td>Power Supply</td>\n    <td>AC 3-400V 50Hz</td>\n</tr>\n<tr>\n    <td>Power Supply (Light)</td>\n    <td>AC 1-230V 50Hz</td>\n</tr>\n<tr>\n    <td>Power Capacity (kVA)</td>\n    <td>18</td>\n</tr>\n<tr>\n    <td>Light Capacity (kVA)</td>\n    <td>[2+(OH+TH+PD-1)/7]*LP/700</td>\n</tr>\n<tr>\n    <td>Heat Dissipation (kJ/h)</td>\n    <td>6779</td>\n</tr>\n<tr>\n    <td>Load current (A)</td>\n    <td>24</td>\n</tr>\n<tr><td colspan=\"14\" style=\"text-align:center;\">Force (kN)</td></tr>\n<tr>\n    <td>P1</td>\n    <td>P2</td>\n    <td>P3</td>\n    <td>P4</td>\n    <td>P5</td>\n    <td>P6</td>\n    <td>P7</td>\n    <td>P8</td>\n    <td>P9</td>\n    <td>P10</td>\n    <td>P11</td>\n    <td>Fx</td>\n    <td>Fy</td>\n</tr>\n<tr>\n    <td>131</td>\n    <td>103</td>\n    <td>52</td>\n    <td>9</td>\n    <td>69</td>\n    <td>22</td>\n    <td>52</td>\n    <td></td>\n    <td>75</td>\n    <td>36</td>\n    <td>32</td>\n    <td>2.47</td>\n    <td>2.06</td>\n</tr>\n<tr>\n    <td colspan=\"10\" style=\"vertical-align:top;\">Signature and stamp for approval:</td>\n    <td colspan=\"2\" rowspan=\"4\" style=\"vertical-align:top;\">\n        <image here><br>Force when safety gear operation<br>P10<br>Fx<br>Fy\n    </td>\n</tr>\n<tr>\n    <td colspan=\"10\" style=\"vertical-align:top;\">Remark: All dimensions are as indicated, and in mm.</td>\n</tr>\n<tr>\n    <td colspan=\"10\" style=\"vertical-align:top;\">\n        Project No.:\n    </td>\n</tr>\n<tr>\n    <td colspan=\"10\" style=\"vertical-align:top;\">\n        Project Name:\n    </td>\n</tr>\n<tr>\n    <td colspan=\"12\"></td>\n    <td colspan=\"2\" style=\"vertical-align:top;\">\n        Note: ① The result of formula should be rounded up to integer.<br>\n        The units of OH, TH and PD are meter, and the unit of LP is watt.\n    </td>\n</tr>\n<tr>\n    <td colspan=\"14\" style=\"vertical-align:top;\">Unit No.</td>\n</tr>\n</table>\n</final>",
+                        "extracted_result": {
+                            "title": "",
+                            "description": "",
+                            "html": "<table><tr><td colspan=\"2\" style=\"text-align:center;\">Main Parameters</td></tr>\n<tr>\n    <td>Unit No.</td>\n    <td>PL1, PL2</td>\n</tr>\n<tr>\n    <td>Elevator Type</td>\n    <td>Passenger Lift</td>\n</tr>\n<tr>\n    <td>Product Family</td>\n    <td>meta200 MRL</td>\n</tr>\n<tr>\n    <td>Rated Load (kg)</td>\n    <td>1350</td>\n</tr>\n<tr>\n    <td>Rated Speed (m/s)</td>\n    <td>1</td>\n</tr>\n<tr>\n    <td>CWT Location</td>\n    <td>Side</td>\n</tr>\n<tr>\n    <td>Control Style</td>\n    <td>Simplex</td>\n</tr>\n<tr>\n    <td>Floor/Stop/Door</td>\n    <td>2/2/2</td>\n</tr>\n<tr>\n    <td>Door Opening Type</td>\n    <td>Centre opening</td>\n</tr>\n<tr>\n    <td>Door (DW×DH) (mm)</td>\n    <td>1100×2100</td>\n</tr>\n<tr>\n    <td>Car (CW×CD×CH) (mm)</td>\n    <td>1900×1600×2450</td>\n</tr>\n<tr>\n    <td>Suspension Ratio</td>\n    <td>2:1</td>\n</tr>\n<tr>\n    <td>Traction Machine</td>\n    <td>Gearless</td>\n</tr>\n<tr>\n    <td>Power Supply</td>\n    <td>AC 3-400V 50Hz</td>\n</tr>\n<tr>\n    <td>Power Supply (Light)</td>\n    <td>AC 1-230V 50Hz</td>\n</tr>\n<tr>\n    <td>Power Capacity (kVA)</td>\n    <td>18</td>\n</tr>\n<tr>\n    <td>Light Capacity (kVA)</td>\n    <td>[2+(OH+TH+PD-1)/7]*LP/700</td>\n</tr>\n<tr>\n    <td>Heat Dissipation (kJ/h)</td>\n    <td>6779</td>\n</tr>\n<tr>\n    <td>Load current (A)</td>\n    <td>24</td>\n</tr>\n<tr><td colspan=\"14\" style=\"text-align:center;\">Force (kN)</td></tr>\n<tr>\n    <td>P1</td>\n    <td>P2</td>\n    <td>P3</td>\n    <td>P4</td>\n    <td>P5</td>\n    <td>P6</td>\n    <td>P7</td>\n    <td>P8</td>\n    <td>P9</td>\n    <td>P10</td>\n    <td>P11</td>\n    <td>Fx</td>\n    <td>Fy</td>\n</tr>\n<tr>\n    <td>131</td>\n    <td>103</td>\n    <td>52</td>\n    <td>9</td>\n    <td>69</td>\n    <td>22</td>\n    <td>52</td>\n    <td></td>\n    <td>75</td>\n    <td>36</td>\n    <td>32</td>\n    <td>2.47</td>\n    <td>2.06</td>\n</tr>\n<tr>\n    <td colspan=\"10\" style=\"vertical-align:top;\">Signature and stamp for approval:</td>\n    <td colspan=\"2\" rowspan=\"4\" style=\"vertical-align:top;\">\n        <image here><br>Force when safety gear operation<br>P10<br>Fx<br>Fy\n    </td>\n</tr>\n<tr>\n    <td colspan=\"10\" style=\"vertical-align:top;\">Remark: All dimensions are as indicated, and in mm.</td>\n</tr>\n<tr>\n    <td colspan=\"10\" style=\"vertical-align:top;\">\n        Project No.:\n    </td>\n</tr>\n<tr>\n    <td colspan=\"10\" style=\"vertical-align:top;\">\n        Project Name:\n    </td>\n</tr>\n<tr>\n    <td colspan=\"12\"></td>\n    <td colspan=\"2\" style=\"vertical-align:top;\">\n        Note: ① The result of formula should be rounded up to integer.<br>\n        The units of OH, TH and PD are meter, and the unit of LP is watt.\n    </td>\n</tr>\n<tr>\n    <td colspan=\"14\" style=\"vertical-align:top;\">Unit No.</td>\n</tr></table>"
+                        }
+                    }
+                },
+                {
+                    "rotation": 0,
+                    "type": "text_extraction",
+                    "initialBBox": [
+                        263,
+                        3085,
+                        583,
+                        3136
+                    ],
+                    "createdAt": "2025-08-08T10:35:52.839000",
+                    "updatedAt": "2025-08-08T10:35:52.839000",
+                    "content": {
+                        "text": "Drawing for Installation"
+                    }
+                }
+            ]
+        }
+    ]
+}
+```
+
+## User Experience
+
+### Demo Flow
+1. User navigates to "demo" page where we have a side bar with a `FileList` component.
+2. `FileList` component renders with `type="demo"` props
+3. Predefined files are displayed from cached data
+4. User can interact with demo files as if they were uploaded
+5. Full functionality available without file upload requirement
+
+## Benefits
+
+- **Instant Access**: No upload required for testing
+- **Consistent Experience**: Predetermined files ensure reliable demo
+- **Performance**: Cached data provides fast loading
+- **User Onboarding**: Easy way for new users to explore features
+
+
+

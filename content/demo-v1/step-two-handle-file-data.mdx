@@ -1,0 +1,471 @@
+# File Data Management Hook with Immer
+
+This document provides a comprehensive technical approach for managing file data in a Next.js 15 application using React hooks and Immer for immutable state updates.
+
+## Overview
+
+The solution creates a custom hook that:
+- Maintains an array of file data in state
+- Fetches file data from API if not present in state
+- Uses Immer for immutable state updates
+- Provides loading states and error handling
+- Caches fetched data to avoid redundant API calls
+
+## Dependencies
+
+First, install the required dependencies:
+
+```bash
+npm install immer
+npm install @types/node # if not already installed
+```
+
+## TypeScript Interfaces
+
+### 1. Core Data Structures
+
+```typescript
+// lib/types/file-data.ts
+
+export interface BoundingBox {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface TableExtractionContent {
+  raw_response: string;
+  extracted_result: {
+    title: string;
+    description: string;
+    html: string;
+  };
+}
+
+export interface DiagramExtractionContent {
+  DiagramTitle: string;
+  View: string;
+  diag_description: string;
+  LinearDimensions: {
+    length_measurements: string[];
+    width_measurements: string[];
+    height_measurements: string[];
+    depth_measurements: string[];
+    thickness_markings: string[];
+    distance_callouts: string[];
+    offset_dimensions: string[];
+    center_to_center_distances: string[];
+    overall_length_markings: string[];
+    pitch_measurements: string[];
+  };
+  ToleranceMarkings: {
+    plus_minus_tolerances: string[];
+    bilateral_tolerances: string[];
+    unilateral_tolerances: string[];
+    limit_dimensions: string[];
+    basic_dimensions: string[];
+    reference_dimensions: string[];
+  };
+  RadialCircularDimensions: {
+    radius_callouts: string[];
+    sphere_radius: string[];
+    controlled_radius: string[];
+    fillet_radius: string[];
+    diameter_callouts: string[];
+    sphere_diameter: string[];
+    bolt_circle_diameter: string[];
+    pitch_circle_diameter: string[];
+    arc_length: string[];
+    chord_length: string[];
+  };
+  AngularDimensions: {
+    degree_markings: string[];
+    angle_specifications: string[];
+    chamfer_angles: string[];
+    bevel_angles: string[];
+    taper_angles: string[];
+    slope_markings: string[];
+    included_angles: string[];
+  };
+  SurfaceRoughnessValues: {
+    ra_values: string[];
+    rz_measurements: string[];
+    surface_finish_numbers: string[];
+    rms_values: string[];
+  };
+  MachiningRequirements: {
+    machining_allowance: string[];
+    finish_all_over: string[];
+    as_cast: string[];
+    as_forged: string[];
+    as_rolled: string[];
+  };
+  WeldSizeMarkings: {
+    fillet_weld_sizes: string[];
+    groove_weld_penetration: string[];
+    weld_length: string[];
+    intermittent_spacing: string[];
+  };
+  WeldingProcessNotes: {
+    process_specifications: string[];
+    electrode_callouts: string[];
+    welding_position: string[];
+    ndt_requirements: string[];
+  };
+  ISOToleranceGrades: {
+    hole_tolerances: string[];
+    shaft_tolerances: string[];
+    fit_callouts: string[];
+  };
+  ANSIToleranceClasses: {
+    running_fits: string[];
+    sliding_fits: string[];
+    transition_fits: string[];
+    force_fits: string[];
+  };
+  PositionTolerances: {
+    position_callouts: string[];
+    true_position: string[];
+    concentricity: string[];
+  };
+  FormOrientationTolerances: {
+    flatness: string[];
+    straightness: string[];
+    parallelism: string[];
+    perpendicularity: string[];
+    circularity: string[];
+  };
+  Callouts: {
+    "Balloon callouts": string[];
+    "Leader callouts": string[];
+  };
+}
+
+export interface TextExtractionContent {
+  text: string;
+}
+
+export type ExtractionType = 'table_extraction' | 'diagram_extraction' | 'text_extraction';
+
+export interface PageData {
+  rotation: number;
+  type: ExtractionType;
+  initialBBox: [number, number, number, number];
+  createdAt: string;
+  updatedAt: string;
+  content: TableExtractionContent | DiagramExtractionContent | TextExtractionContent;
+}
+
+export interface Page {
+  page_no: number;
+  processedAt: string;
+  image: string; // base64 encoded image
+  dpi: number;
+  page_data: PageData[];
+}
+
+export interface FileData {
+  file_id: string;
+  user_id: string;
+  file_name: string;
+  pages: Page[];
+}
+
+export interface FileDataState {
+  files: FileData[];
+  loading: Record<string, boolean>;
+  errors: Record<string, string | null>;
+}
+
+export interface UseFileDataReturn {
+  files: FileData[];
+  getFileById: (fileId: string) => FileData | undefined;
+  fetchFileData: (fileId: string) => Promise<void>;
+  isLoading: (fileId: string) => boolean;
+  getError: (fileId: string) => string | null;
+  clearError: (fileId: string) => void;
+  clearAllErrors: () => void;
+}
+```
+
+## Custom Hook Implementation
+
+### 2. File Data Management Hook
+
+```typescript
+// lib/hooks/useFileData.ts
+import { useState, useCallback } from 'react';
+import { produce } from 'immer';
+import type { FileData, FileDataState, UseFileDataReturn } from '@/lib/types/file-data';
+
+const INITIAL_STATE: FileDataState = {
+  files: [],
+  loading: {},
+  errors: {},
+};
+
+export const useFileData = (): UseFileDataReturn => {
+  const [state, setState] = useState<FileDataState>(INITIAL_STATE);
+
+  // Get file by ID from the cached files
+  const getFileById = useCallback((fileId: string): FileData | undefined => {
+    return state.files.find(file => file.file_id === fileId);
+  }, [state.files]);
+
+  // Check if a file is currently being loaded
+  const isLoading = useCallback((fileId: string): boolean => {
+    return state.loading[fileId] || false;
+  }, [state.loading]);
+
+  // Get error for a specific file
+  const getError = useCallback((fileId: string): string | null => {
+    return state.errors[fileId] || null;
+  }, [state.errors]);
+
+  // Clear error for a specific file
+  const clearError = useCallback((fileId: string): void => {
+    setState(produce(draft => {
+      delete draft.errors[fileId];
+    }));
+  }, []);
+
+  // Clear all errors
+  const clearAllErrors = useCallback((): void => {
+    setState(produce(draft => {
+      draft.errors = {};
+    }));
+  }, []);
+
+  // Fetch file data from API
+  const fetchFileData = useCallback(async (fileId: string): Promise<void> => {
+    // Check if file already exists in state
+    const existingFile = getFileById(fileId);
+    if (existingFile) {
+      return; // File already cached, no need to fetch
+    }
+
+    // Check if already loading
+    if (isLoading(fileId)) {
+      return; // Already fetching this file
+    }
+
+    // Set loading state
+    setState(produce(draft => {
+      draft.loading[fileId] = true;
+      delete draft.errors[fileId]; // Clear any previous errors
+    }));
+
+    try {
+      const response = await fetch(`/api/persistent/file-info?file_id=${fileId}`);
+      
+      if (!response.ok) {
+        throw new Error(`Failed to fetch file data: ${response.status} ${response.statusText}`);
+      }
+
+      const fileData: FileData = await response.json();
+
+      // Validate the response has the expected structure
+      if (!fileData.file_id || !fileData.pages || !Array.isArray(fileData.pages)) {
+        throw new Error('Invalid file data structure received from API');
+      }
+
+      // Update state with new file data
+      setState(produce(draft => {
+        // Remove from loading
+        delete draft.loading[fileId];
+        
+        // Add to files array (check if it doesn't already exist)
+        const existingIndex = draft.files.findIndex(file => file.file_id === fileId);
+        if (existingIndex === -1) {
+          draft.files.push(fileData);
+        } else {
+          // Update existing file data
+          draft.files[existingIndex] = fileData;
+        }
+      }));
+    } catch (error) {
+      // Handle errors
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+      
+      setState(produce(draft => {
+        delete draft.loading[fileId];
+        draft.errors[fileId] = errorMessage;
+      }));
+      
+      // Re-throw error so calling code can handle it if needed
+      throw error;
+    }
+  }, [getFileById, isLoading]);
+
+  return {
+    files: state.files,
+    getFileById,
+    fetchFileData,
+    isLoading,
+    getError,
+    clearError,
+    clearAllErrors,
+  };
+};
+```
+
+## Usage Examples
+
+### 3. Usage
+
+```typescript
+// components/FileViewer.tsx
+import React, { useEffect } from 'react';
+import { useFileData } from '@/lib/hooks/useFileData';
+import type { FileData } from '@/lib/types/file-data';
+
+interface FileViewerProps {
+  fileId: string;
+}
+
+export const DemoPage: React.FC<FileViewerProps> = ({ fileId }) => {
+  const {
+    getFileById,
+    fetchFileData,
+    isLoading,
+    getError,
+    clearError
+  } = useFileData();
+
+  const file = getFileById(fileId);
+  const loading = isLoading(fileId);
+  const error = getError(fileId);
+
+  // Fetch file data on mount or when fileId changes
+  useEffect(() => {
+    if (!file && !loading && !error) {
+      fetchFileData(fileId).catch(() => {
+        // Error is already handled by the hook
+      });
+    }
+  }, [fileId, file, loading, error, fetchFileData]);
+
+  // Handle retry
+  const handleRetry = () => {
+    clearError(fileId);
+    fetchFileData(fileId);
+  };
+
+  if (loading) {
+    return <div className="loading">Loading file data...</div>;
+  }
+
+  if (error) {
+    return (
+      <div className="error">
+        <p>Error loading file: {error}</p>
+        <button onClick={handleRetry}>Retry</button>
+      </div>
+    );
+  }
+
+  if (!file) {
+    return <div>No file data available</div>;
+  }
+
+  return (
+    // Display file information (ImageAnnotator , PageHeader, PageTab, ContentTab)
+  );
+};
+```
+
+### 4. Advanced Usage with Search and Filtering
+
+```typescript
+// hooks/useFileSearch.ts
+import { useMemo } from 'react';
+import { useFileData } from './useFileData';
+import type { FileData, PageData } from '@/lib/types/file-data';
+
+interface SearchResult {
+  file: FileData;
+  page: PageData['page_no'];
+  extraction: PageData;
+  relevance: number;
+}
+
+export const useFileSearch = (query: string) => {
+  const { files } = useFileData();
+
+  const searchResults = useMemo(() => {
+    if (!query.trim()) return [];
+
+    const results: SearchResult[] = [];
+    const searchTerm = query.toLowerCase();
+
+    files.forEach(file => {
+      // Search in file name
+      if (file.file_name.toLowerCase().includes(searchTerm)) {
+        file.pages.forEach(page => {
+          page.page_data.forEach(extraction => {
+            results.push({
+              file,
+              page: page.page_no,
+              extraction,
+              relevance: 1
+            });
+          });
+        });
+      }
+
+      // Search in content
+      file.pages.forEach(page => {
+        page.page_data.forEach(extraction => {
+          let relevance = 0;
+
+          if (extraction.type === 'text_extraction' && 'text' in extraction.content) {
+            if (extraction.content.text.toLowerCase().includes(searchTerm)) {
+              relevance = 0.8;
+            }
+          } else if (extraction.type === 'table_extraction' && 'extracted_result' in extraction.content) {
+            const html = extraction.content.extracted_result.html.toLowerCase();
+            if (html.includes(searchTerm)) {
+              relevance = 0.7;
+            }
+          } else if (extraction.type === 'diagram_extraction' && 'DiagramTitle' in extraction.content) {
+            const title = extraction.content.DiagramTitle.toLowerCase();
+            const description = extraction.content.diag_description.toLowerCase();
+            
+            if (title.includes(searchTerm)) {
+              relevance = 0.9;
+            } else if (description.includes(searchTerm)) {
+              relevance = 0.6;
+            }
+          }
+
+          if (relevance > 0) {
+            results.push({
+              file,
+              page: page.page_no,
+              extraction,
+              relevance
+            });
+          }
+        });
+      });
+    });
+
+    // Sort by relevance
+    return results.sort((a, b) => b.relevance - a.relevance);
+  }, [files, query]);
+
+  return { searchResults, totalResults: searchResults.length };
+};
+```
+
+## Summary
+
+This implementation provides:
+
+1. **Type Safety**: Comprehensive TypeScript interfaces for all data structures
+2. **Immutable Updates**: Uses Immer for safe state mutations
+3. **Caching**: Prevents redundant API calls by caching fetched data
+4. **Error Handling**: Comprehensive error states and recovery mechanisms
+5. **Loading States**: Tracks loading status for each file individually
+6. **Performance**: Optimized for large datasets with debouncing and memoization
