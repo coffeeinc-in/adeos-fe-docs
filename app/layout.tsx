@@ -4,7 +4,8 @@ import { getPageMap } from 'nextra/page-map'
 import 'nextra-theme-docs/style.css'
 import Link from "next/link";
 import Image from 'next/image';
-export const metadata = {
+import { Metadata } from 'next';
+export const metadata:Metadata = {
     title: 'Adeos FE',
     description: 'Extract engineering drawing using ocr and image processing',
     openGraph: {
@@ -32,16 +33,16 @@ const banner = <Banner storageKey="opensource-announcement">📢 This documentat
 const navbar = (
     <Navbar
         logo={
-            <Link href={"/"} style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <Image src="/favicon.ico" alt="Adeos FE Logo" width={32} height={32} />
                 <span className="text-lg font-bold">
                     Adeos FE
                 </span>
-            </Link>
+            </div>
         }
     />
 )
-const footer = <Footer>                            <span className="flex items-center gap-2 ">
+const footer = <Footer> <span className="flex items-center gap-2 ">
     Powered by{" "}
     <img
         alt="Coffee"
@@ -53,19 +54,12 @@ const footer = <Footer>                            <span className="flex items-c
 export default async function RootLayout({ children }) {
     return (
         <html
-            // Not required, but good for SEO
             lang="en"
-            // Required to be set
             dir="ltr"
-            // Suggested by `next-themes` package https://github.com/pacocoursey/next-themes#with-app
             suppressHydrationWarning
         >
-            <Head
-            // ... Your additional head options
-            >
-                <link rel="shortcut icon" href="/images/general/icon.svg" />
-                <link rel="stylesheet" href="/styles/nextra-overrides.css" />
-                {/* Your additional tags should be passed as `children` of `<Head>` element */}
+            <Head>
+                <link rel="shortcut icon" href="/favicon.ico" />
             </Head>
             <body>
                 <Layout
@@ -73,11 +67,7 @@ export default async function RootLayout({ children }) {
                     navbar={navbar}
                     pageMap={await getPageMap()}
                     docsRepositoryBase="https://github.com/coffeeinc-in/adeos-fe-docs"
-                    footer={
-                        footer
-                    }
-                // ... Your additional layout options
-                >
+                    footer={footer}>
                     {children}
                 </Layout>
             </body>
