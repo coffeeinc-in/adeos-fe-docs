@@ -1,0 +1,58 @@
+# Approach for `ADEOS - Try It Yourself Demo`
+
+## Need to Have Features
+
+### Navigation - Files
+- **Sample File Reference 1**: 2 static storage files under "All Files"
+- **Sample File Reference 2**: Additional demo file support
+
+### File Upload
+- **Select File, Drag & Drop**: Open file browser directly, save uploaded file in DB with user IP, browser details, time taken to load
+- **Browse & select files**: No modification needed
+- **File type indicator**: Add text to mention supported file formats, store the data
+- **File format**: Support PDF, JPG, PNG formats
+- **Progress bar & upload status**: Show processing status - "Detecting Layout" and "Extracting detected blocks"
+- **Process only page 1**: Only one page processed for demo, show toast messages before and during upload
+
+### Backend - Layout Detection
+- **Detect Layout**: Group table layouts as BOM and title table
+
+### Backend - Extraction Process
+- **Data Extraction**: Table, Text, Diagram extraction maintained
+- **Data Extraction Completion**: Page view with extracted data
+
+### Collapsible Menu
+- **Auto hide option**: Shows sample file and upload options
+
+### Sample References
+- **File/Page View**: Display file name
+- **Page Features**: Zoom in/out, Reset View, Pan, DPI, Process annotations, Text table Diagram buttons, Detect Bounding box maintained
+- **Count of detected bbox**: Display detection count
+
+### Extracted Data
+- **Diagram**: Fetch and store extracted data from/to DB
+- **Tables**: Table extraction functionality
+- **Text**: Text extraction functionality
+
+### Diagram
+- **Title**: Current functionality maintained
+- **Description**: 2-line description (modify AI prompt for 2-sentence summary)
+- **Linear Dimensions**: Chips view with modified prompt for Linear and Radii Circular dimensions only
+- **Radii-Circular Dimension**: Current functionality maintained
+- **Dimension highlighting**: Select any dimension to highlight in diagram
+
+### Text
+- **View extracted text**: Filter out marginalia, process only filtered bbox classes in frontend
+
+### Table
+- **Bill of material**: Remove tables other than BOM and title box
+- **Title Box**: Maintain title box extraction
+
+### Chat
+- **Type prompt**: Current question prompt functionality
+- **Receive response**: Maintain current response system with improved response time
+
+### Download
+- **Download button**: Disable file download, redirect to contact form
+- **Toast/pop-up**: Contact form popup on download button selection
+- **Contact form**: Capture and save user data

@@ -1,0 +1,87 @@
+## Requirements
+
+- **Static Storage**: Need to have 2 predefined files available under "All Files"
+- **File Structure**: Predefined files structure in the frontend
+- **Caching**: Backend cache with preprocessed static file data
+
+## Technical Approach
+
+### Frontend Implementation
+
+#### Component Architecture
+- **Dependent Component**: `FileList`
+- **New Prop**: `type: "demo"`
+- **Behavior**: When `type="demo"`, display predefined static files from cached backend data
+
+#### Data Structure
+
+The static file information will follow this standardized structure:
+
+```typescript
+interface DemoFile {
+  file_id: string;
+  file_name: string;
+  format: string;
+  uploaded_at: string;
+  total_pages: number;
+  selected_pages: number[];
+  size: number;
+}
+
+type DemoFiles = DemoFile[];
+```
+
+#### Example Data
+```json
+[
+  {
+    "file_id": "demo_001",
+    "file_name": "sample_document_1.pdf",
+    "format": "pdf",
+    "uploaded_at": "2024-01-01T00:00:00Z",
+    "total_pages": 25,
+    "selected_pages": [1, 2, 3],
+    "size": 1024000
+  },
+  {
+    "file_id": "demo_002", 
+    "file_name": "sample_spreadsheet.xlsx",
+    "format": "xlsx",
+    "uploaded_at": "2024-01-01T00:00:00Z",
+    "total_pages": 10,
+    "selected_pages": [1, 2],
+    "size": 512000
+  }
+]
+```
+
+### Backend Implementation
+
+#### Caching Strategy
+- Store preprocessed demo file metadata in backend cache
+- Ensure fast retrieval for demo experience
+- Maintain consistency with actual file processing pipeline
+
+#### File Management
+- Maintain 2 static demo files as specified
+- Preprocess files during system initialization
+- Store metadata in cache for quick access
+
+## User Experience
+
+### Demo Flow
+1. User navigates to "demo" page where we have a side bar with a `FileList` component.
+2. `FileList` component renders with `type="demo"` props
+3. Predefined files are displayed from cached data
+4. User can interact with demo files as if they were uploaded
+5. Full functionality available without file upload requirement
+
+## Benefits
+
+- **Instant Access**: No upload required for testing
+- **Consistent Experience**: Predetermined files ensure reliable demo
+- **Performance**: Cached data provides fast loading
+- **User Onboarding**: Easy way for new users to explore features
+
+
+

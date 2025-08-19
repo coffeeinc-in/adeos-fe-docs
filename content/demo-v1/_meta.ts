@@ -1,3 +1,4 @@
 export default {
-  approach: 'Approach',
+  index: 'Approach',
+  "approach-sample-files": 'Step 1: Approach for sample files',
 }
