@@ -137,17 +137,18 @@ sequenceDiagram
     participant W as WebSocket Server
     participant B as Backend API
     participant R as Redis
-    participant AP as Annotation Processors
+    participant AP as Annotation Processors (Text Extractor, Table Extractor, Diagram Extractor)
 
     IC->>WS: Process annotations (batch request)
     WS->>+B: POST /api/process-batch (annotations)
     B->>R: Create batch job in queue
+    B->>AP: Start annotation processing
     B->>WS: Return batch_id
     
     WS->>+W: Subscribe to batch updates
     W->>R: Subscribe to batch channels
     
-    B->>AP: Start annotation processing
+
     AP->>R: Publish batch progress
     R->>W: Forward progress message
     W->>WS: Send batch progress update
