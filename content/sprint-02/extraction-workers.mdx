@@ -1,0 +1,1125 @@
+# Extraction Workers Implementation
+
+## Extraction Service and Workers
+
+### Extraction Service (app/services/extraction_service.py)
+
+```python
+import asyncio
+import os
+import logging
+from datetime import datetime
+from typing import Dict, Any, List, Optional
+import uuid
+import mimetypes
+
+from .redis_service import RedisService
+from .queue_service import QueueService
+from ..models.schemas import (
+    QueuedJob, ExtractionResults, TextExtractionResult, 
+    TableExtractionResult, DiagramExtractionResult, ExtractionType
+)
+from ..workers.text_extractor import TextExtractor
+from ..workers.table_extractor import TableExtractor
+from ..workers.diagram_extractor import DiagramExtractor
+
+logger = logging.getLogger(__name__)
+
+class ExtractionService:
+    def __init__(self, redis_service: RedisService, queue_service: QueueService):
+        self.redis = redis_service
+        self.queue = queue_service
+        
+        # Initialize extractors
+        self.text_extractor = TextExtractor()
+        self.table_extractor = TableExtractor()
+        self.diagram_extractor = DiagramExtractor()
+        
+        # File upload configuration
+        self.UPLOAD_DIR = os.getenv("UPLOAD_DIR", "uploads")
+        self.MAX_FILE_SIZE = int(os.getenv("MAX_FILE_SIZE", "100")) * 1024 * 1024  # 100MB
+        self.ALLOWED_EXTENSIONS = {
+            '.pdf', '.doc', '.docx', '.txt', '.rtf',
+            '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.tiff'
+        }
+        
+        # Ensure upload directory exists
+        os.makedirs(self.UPLOAD_DIR, exist_ok=True)
+
+    async def create_processing_job(
+        self, 
+        file_path: str, 
+        extraction_types: List[ExtractionType], 
+        options: Dict[str, Any] = None
+    ) -> str:
+        """Create a new document processing job"""
+        try:
+            job_id = str(uuid.uuid4())
+            
+            # Validate file
+            if not os.path.exists(file_path):
+                raise ValueError(f"File not found: {file_path}")
+            
+            file_size = os.path.getsize(file_path)
+            if file_size > self.MAX_FILE_SIZE:
+                raise ValueError(f"File too large: {file_size} bytes (max: {self.MAX_FILE_SIZE})")
+            
+            # Create job data
+            job_data = QueuedJob(
+                job_id=job_id,
+                file_path=file_path,
+                extraction_types=extraction_types,
+                options=options or {},
+                created_at=datetime.now(),
+                priority=options.get('priority', 0) if options else 0
+            )
+            
+            # Enqueue job
+            success = await self.queue.enqueue_job(job_data)
+            if not success:
+                raise RuntimeError("Failed to enqueue job")
+            
+            logger.info(f"Created processing job {job_id} for file: {file_path}")
+            return job_id
+            
+        except Exception as e:
+            logger.error(f"Error creating processing job: {e}")
+            raise
+
+    async def process_document(self, job: QueuedJob):
+        """Process a document with specified extraction types"""
+        try:
+            await self.queue.update_job_progress(
+                job.job_id, 0, "Starting document processing"
+            )
+            
+            # Validate file exists and is readable
+            if not os.path.exists(job.file_path):
+                raise FileNotFoundError(f"File not found: {job.file_path}")
+            
+            # Determine file type
+            file_type = self._get_file_type(job.file_path)
+            logger.info(f"Processing {file_type} file: {job.file_path}")
+            
+            results = ExtractionResults()
+            total_steps = len(job.extraction_types)
+            current_step = 0
+            
+            # Process each extraction type
+            for extraction_type in job.extraction_types:
+                current_step += 1
+                base_progress = ((current_step - 1) / total_steps) * 100
+                step_progress_weight = 100 / total_steps
+                
+                try:
+                    if extraction_type == ExtractionType.TEXT:
+                        await self._process_text_extraction(
+                            job, results, base_progress, step_progress_weight
+                        )
+                    elif extraction_type == ExtractionType.TABLE:
+                        await self._process_table_extraction(
+                            job, results, base_progress, step_progress_weight
+                        )
+                    elif extraction_type == ExtractionType.DIAGRAM:
+                        await self._process_diagram_extraction(
+                            job, results, base_progress, step_progress_weight
+                        )
+                        
+                except Exception as e:
+                    logger.error(f"Error in {extraction_type} extraction for job {job.job_id}: {e}")
+                    # Continue with other extraction types
+                    continue
+            
+            # Complete the job
+            await self.queue.complete_job(job.job_id, results.dict())
+            
+            logger.info(f"Document processing completed for job {job.job_id}")
+            
+        except Exception as e:
+            logger.error(f"Error processing document for job {job.job_id}: {e}")
+            await self.queue.fail_job(job.job_id, str(e))
+
+    async def _process_text_extraction(
+        self, 
+        job: QueuedJob, 
+        results: ExtractionResults, 
+        base_progress: float, 
+        step_weight: float
+    ):
+        """Process text extraction"""
+        await self.queue.update_job_progress(
+            job.job_id, 
+            base_progress, 
+            "Extracting text content..."
+        )
+        
+        def progress_callback(progress: float):
+            asyncio.create_task(
+                self.queue.update_job_progress(
+                    job.job_id,
+                    base_progress + (progress * step_weight / 100),
+                    f"Extracting text... {progress:.1f}%"
+                )
+            )
+        
+        try:
+            text_result = await self.text_extractor.extract_text(
+                job.file_path, 
+                job.options.get('text_options', {}),
+                progress_callback
+            )
+            results.text_extraction = text_result
+            
+            await self.queue.update_job_progress(
+                job.job_id,
+                base_progress + step_weight,
+                "Text extraction completed"
+            )
+            
+        except Exception as e:
+            logger.error(f"Text extraction failed for job {job.job_id}: {e}")
+            raise
+
+    async def _process_table_extraction(
+        self, 
+        job: QueuedJob, 
+        results: ExtractionResults, 
+        base_progress: float, 
+        step_weight: float
+    ):
+        """Process table extraction"""
+        await self.queue.update_job_progress(
+            job.job_id, 
+            base_progress, 
+            "Extracting tables..."
+        )
+        
+        def progress_callback(progress: float):
+            asyncio.create_task(
+                self.queue.update_job_progress(
+                    job.job_id,
+                    base_progress + (progress * step_weight / 100),
+                    f"Extracting tables... {progress:.1f}%"
+                )
+            )
+        
+        try:
+            table_result = await self.table_extractor.extract_tables(
+                job.file_path, 
+                job.options.get('table_options', {}),
+                progress_callback
+            )
+            results.table_extraction = table_result
+            
+            await self.queue.update_job_progress(
+                job.job_id,
+                base_progress + step_weight,
+                "Table extraction completed"
+            )
+            
+        except Exception as e:
+            logger.error(f"Table extraction failed for job {job.job_id}: {e}")
+            raise
+
+    async def _process_diagram_extraction(
+        self, 
+        job: QueuedJob, 
+        results: ExtractionResults, 
+        base_progress: float, 
+        step_weight: float
+    ):
+        """Process diagram extraction"""
+        await self.queue.update_job_progress(
+            job.job_id, 
+            base_progress, 
+            "Extracting diagrams and images..."
+        )
+        
+        def progress_callback(progress: float):
+            asyncio.create_task(
+                self.queue.update_job_progress(
+                    job.job_id,
+                    base_progress + (progress * step_weight / 100),
+                    f"Extracting diagrams... {progress:.1f}%"
+                )
+            )
+        
+        try:
+            diagram_result = await self.diagram_extractor.extract_diagrams(
+                job.file_path, 
+                job.options.get('diagram_options', {}),
+                progress_callback
+            )
+            results.diagram_extraction = diagram_result
+            
+            await self.queue.update_job_progress(
+                job.job_id,
+                base_progress + step_weight,
+                "Diagram extraction completed"
+            )
+            
+        except Exception as e:
+            logger.error(f"Diagram extraction failed for job {job.job_id}: {e}")
+            raise
+
+    def _get_file_type(self, file_path: str) -> str:
+        """Determine file type from extension and MIME type"""
+        mime_type, _ = mimetypes.guess_type(file_path)
+        extension = os.path.splitext(file_path)[1].lower()
+        
+        if extension in ['.pdf']:
+            return 'pdf'
+        elif extension in ['.doc', '.docx']:
+            return 'word'
+        elif extension in ['.txt', '.rtf']:
+            return 'text'
+        elif extension in ['.png', '.jpg', '.jpeg', '.gif', '.bmp', '.tiff']:
+            return 'image'
+        else:
+            return 'unknown'
+
+    async def get_job_status(self, job_id: str) -> Optional[Dict[str, Any]]:
+        """Get job status"""
+        return await self.queue.get_job_status(job_id)
+
+    async def cancel_job(self, job_id: str) -> bool:
+        """Cancel a job if it's still pending"""
+        try:
+            job_status = await self.queue.get_job_status(job_id)
+            if not job_status:
+                return False
+                
+            if job_status.get('status') == 'pending':
+                await self.queue.fail_job(job_id, "Job cancelled by user")
+                return True
+            else:
+                return False  # Can't cancel running or completed jobs
+                
+        except Exception as e:
+            logger.error(f"Error cancelling job {job_id}: {e}")
+            return False
+
+    async def cleanup_job_files(self, job_id: str):
+        """Clean up temporary files for a job"""
+        try:
+            job_status = await self.queue.get_job_status(job_id)
+            if not job_status:
+                return
+                
+            # Clean up uploaded file if it exists
+            file_path = job_status.get('file_path')
+            if file_path and os.path.exists(file_path):
+                os.remove(file_path)
+                logger.info(f"Cleaned up file: {file_path}")
+                
+        except Exception as e:
+            logger.error(f"Error cleaning up job files for {job_id}: {e}")
+```
+
+### Text Extractor Worker (app/workers/text_extractor.py)
+
+```python
+import asyncio
+import logging
+from typing import Dict, Any, Callable, Optional
+import os
+import time
+
+# PDF processing
+import PyPDF2
+import pdfplumber
+
+# Word document processing
+from docx import Document
+import textract
+
+# Image OCR
+from PIL import Image
+import pytesseract
+
+from ..models.schemas import TextExtractionResult
+
+logger = logging.getLogger(__name__)
+
+class TextExtractor:
+    def __init__(self):
+        # Configure OCR if available
+        self.ocr_available = self._check_ocr_availability()
+        
+    def _check_ocr_availability(self) -> bool:
+        """Check if OCR tools are available"""
+        try:
+            pytesseract.get_tesseract_version()
+            return True
+        except Exception:
+            logger.warning("Tesseract OCR not available")
+            return False
+
+    async def extract_text(
+        self, 
+        file_path: str, 
+        options: Dict[str, Any] = None,
+        progress_callback: Optional[Callable[[float], None]] = None
+    ) -> TextExtractionResult:
+        """Extract text from document"""
+        options = options or {}
+        
+        try:
+            file_extension = os.path.splitext(file_path)[1].lower()
+            
+            if progress_callback:
+                progress_callback(10)
+            
+            if file_extension == '.pdf':
+                content, metadata = await self._extract_from_pdf(file_path, options, progress_callback)
+            elif file_extension in ['.doc', '.docx']:
+                content, metadata = await self._extract_from_word(file_path, options, progress_callback)
+            elif file_extension in ['.txt', '.rtf']:
+                content, metadata = await self._extract_from_text(file_path, options, progress_callback)
+            elif file_extension in ['.png', '.jpg', '.jpeg', '.gif', '.bmp', '.tiff']:
+                content, metadata = await self._extract_from_image(file_path, options, progress_callback)
+            else:
+                # Fallback to textract for other formats
+                content, metadata = await self._extract_with_textract(file_path, options, progress_callback)
+            
+            if progress_callback:
+                progress_callback(100)
+            
+            return TextExtractionResult(
+                content=content,
+                metadata=metadata
+            )
+            
+        except Exception as e:
+            logger.error(f"Error extracting text from {file_path}: {e}")
+            raise
+
+    async def _extract_from_pdf(
+        self, 
+        file_path: str, 
+        options: Dict[str, Any],
+        progress_callback: Optional[Callable[[float], None]] = None
+    ) -> tuple[str, Dict[str, Any]]:
+        """Extract text from PDF using multiple methods"""
+        content = ""
+        metadata = {}
+        
+        try:
+            # Try pdfplumber first (better for complex layouts)
+            if options.get('use_pdfplumber', True):
+                with pdfplumber.open(file_path) as pdf:
+                    total_pages = len(pdf.pages)
+                    metadata['pages'] = total_pages
+                    
+                    for i, page in enumerate(pdf.pages):
+                        if progress_callback:
+                            progress = 20 + (i / total_pages) * 60
+                            progress_callback(progress)
+                        
+                        page_text = page.extract_text()
+                        if page_text:
+                            content += page_text + "\n\n"
+                        
+                        # Small delay to allow other tasks
+                        if i % 5 == 0:
+                            await asyncio.sleep(0.01)
+            
+            # Fallback to PyPDF2 if pdfplumber fails
+            if not content.strip():
+                with open(file_path, 'rb') as file:
+                    pdf_reader = PyPDF2.PdfReader(file)
+                    total_pages = len(pdf_reader.pages)
+                    metadata['pages'] = total_pages
+                    
+                    for i, page in enumerate(pdf_reader.pages):
+                        if progress_callback:
+                            progress = 20 + (i / total_pages) * 60
+                            progress_callback(progress)
+                        
+                        try:
+                            page_text = page.extract_text()
+                            if page_text:
+                                content += page_text + "\n\n"
+                        except Exception as e:
+                            logger.warning(f"Error extracting text from page {i+1}: {e}")
+                            continue
+                        
+                        # Small delay to allow other tasks
+                        if i % 5 == 0:
+                            await asyncio.sleep(0.01)
+            
+            if progress_callback:
+                progress_callback(90)
+            
+            # Clean up content
+            content = self._clean_text(content)
+            metadata.update({
+                'characters': len(content),
+                'words': len(content.split()),
+                'method': 'pdfplumber' if options.get('use_pdfplumber', True) else 'PyPDF2'
+            })
+            
+            return content, metadata
+            
+        except Exception as e:
+            logger.error(f"Error extracting text from PDF {file_path}: {e}")
+            raise
+
+    async def _extract_from_word(
+        self, 
+        file_path: str, 
+        options: Dict[str, Any],
+        progress_callback: Optional[Callable[[float], None]] = None
+    ) -> tuple[str, Dict[str, Any]]:
+        """Extract text from Word documents"""
+        try:
+            if progress_callback:
+                progress_callback(20)
+            
+            if file_path.endswith('.docx'):
+                # Use python-docx for .docx files
+                doc = Document(file_path)
+                content = "\n".join([paragraph.text for paragraph in doc.paragraphs])
+                
+                if progress_callback:
+                    progress_callback(60)
+                
+                metadata = {
+                    'paragraphs': len(doc.paragraphs),
+                    'method': 'python-docx'
+                }
+            else:
+                # Use textract for .doc files
+                content = textract.process(file_path).decode('utf-8')
+                
+                if progress_callback:
+                    progress_callback(60)
+                
+                metadata = {
+                    'method': 'textract'
+                }
+            
+            if progress_callback:
+                progress_callback(90)
+            
+            # Clean up content
+            content = self._clean_text(content)
+            metadata.update({
+                'characters': len(content),
+                'words': len(content.split())
+            })
+            
+            return content, metadata
+            
+        except Exception as e:
+            logger.error(f"Error extracting text from Word document {file_path}: {e}")
+            raise
+
+    async def _extract_from_text(
+        self, 
+        file_path: str, 
+        options: Dict[str, Any],
+        progress_callback: Optional[Callable[[float], None]] = None
+    ) -> tuple[str, Dict[str, Any]]:
+        """Extract text from plain text files"""
+        try:
+            if progress_callback:
+                progress_callback(20)
+            
+            # Try different encodings
+            encodings = ['utf-8', 'latin-1', 'cp1252', 'ascii']
+            content = None
+            used_encoding = None
+            
+            for encoding in encodings:
+                try:
+                    with open(file_path, 'r', encoding=encoding) as file:
+                        content = file.read()
+                    used_encoding = encoding
+                    break
+                except UnicodeDecodeError:
+                    continue
+            
+            if content is None:
+                raise ValueError("Could not decode text file with any standard encoding")
+            
+            if progress_callback:
+                progress_callback(60)
+            
+            # Clean up content
+            content = self._clean_text(content)
+            
+            if progress_callback:
+                progress_callback(90)
+            
+            metadata = {
+                'encoding': used_encoding,
+                'characters': len(content),
+                'words': len(content.split()),
+                'lines': len(content.splitlines()),
+                'method': 'direct_read'
+            }
+            
+            return content, metadata
+            
+        except Exception as e:
+            logger.error(f"Error extracting text from text file {file_path}: {e}")
+            raise
+
+    async def _extract_from_image(
+        self, 
+        file_path: str, 
+        options: Dict[str, Any],
+        progress_callback: Optional[Callable[[float], None]] = None
+    ) -> tuple[str, Dict[str, Any]]:
+        """Extract text from images using OCR"""
+        try:
+            if not self.ocr_available:
+                raise RuntimeError("OCR not available - Tesseract not found")
+            
+            if progress_callback:
+                progress_callback(20)
+            
+            # Open and preprocess image
+            with Image.open(file_path) as img:
+                # Convert to RGB if necessary
+                if img.mode != 'RGB':
+                    img = img.convert('RGB')
+                
+                if progress_callback:
+                    progress_callback(40)
+                
+                # Configure OCR options
+                ocr_config = options.get('ocr_config', '--psm 3')
+                
+                # Extract text
+                content = pytesseract.image_to_string(img, config=ocr_config)
+                
+                if progress_callback:
+                    progress_callback(80)
+                
+                # Get additional OCR data
+                ocr_data = pytesseract.image_to_data(img, output_type=pytesseract.Output.DICT)
+                
+                if progress_callback:
+                    progress_callback(90)
+            
+            # Clean up content
+            content = self._clean_text(content)
+            
+            # Calculate confidence score
+            confidences = [int(conf) for conf in ocr_data['conf'] if int(conf) > 0]
+            avg_confidence = sum(confidences) / len(confidences) if confidences else 0
+            
+            metadata = {
+                'characters': len(content),
+                'words': len(content.split()),
+                'lines': len(content.splitlines()),
+                'ocr_confidence': avg_confidence,
+                'method': 'tesseract',
+                'image_size': f"{img.width}x{img.height}" if 'img' in locals() else 'unknown'
+            }
+            
+            return content, metadata
+            
+        except Exception as e:
+            logger.error(f"Error extracting text from image {file_path}: {e}")
+            raise
+
+    async def _extract_with_textract(
+        self, 
+        file_path: str, 
+        options: Dict[str, Any],
+        progress_callback: Optional[Callable[[float], None]] = None
+    ) -> tuple[str, Dict[str, Any]]:
+        """Fallback extraction using textract"""
+        try:
+            if progress_callback:
+                progress_callback(20)
+            
+            # Use textract as fallback
+            content = textract.process(file_path).decode('utf-8', errors='ignore')
+            
+            if progress_callback:
+                progress_callback(80)
+            
+            # Clean up content
+            content = self._clean_text(content)
+            
+            if progress_callback:
+                progress_callback(90)
+            
+            metadata = {
+                'characters': len(content),
+                'words': len(content.split()),
+                'lines': len(content.splitlines()),
+                'method': 'textract'
+            }
+            
+            return content, metadata
+            
+        except Exception as e:
+            logger.error(f"Error extracting text with textract from {file_path}: {e}")
+            raise
+
+    def _clean_text(self, text: str) -> str:
+        """Clean and normalize extracted text"""
+        if not text:
+            return ""
+        
+        # Remove excessive whitespace
+        lines = text.split('\n')
+        cleaned_lines = []
+        
+        for line in lines:
+            # Remove leading/trailing whitespace
+            line = line.strip()
+            # Skip empty lines (but keep one empty line between sections)
+            if line or (cleaned_lines and cleaned_lines[-1]):
+                cleaned_lines.append(line)
+        
+        # Join lines and normalize whitespace
+        cleaned_text = '\n'.join(cleaned_lines)
+        
+        # Remove multiple consecutive spaces
+        import re
+        cleaned_text = re.sub(r' +', ' ', cleaned_text)
+        
+        # Remove multiple consecutive newlines (keep max 2)
+        cleaned_text = re.sub(r'\n{3,}', '\n\n', cleaned_text)
+        
+        return cleaned_text.strip()
+```
+
+### Table Extractor Worker (app/workers/table_extractor.py)
+
+```python
+import asyncio
+import logging
+from typing import Dict, Any, Callable, Optional, List
+import os
+import pandas as pd
+
+# PDF processing
+import pdfplumber
+import camelot
+
+# Word document processing
+from docx import Document
+
+# Image processing
+import cv2
+import numpy as np
+from PIL import Image
+
+from ..models.schemas import TableExtractionResult, TableData
+
+logger = logging.getLogger(__name__)
+
+class TableExtractor:
+    def __init__(self):
+        self.camelot_available = self._check_camelot_availability()
+        
+    def _check_camelot_availability(self) -> bool:
+        """Check if Camelot is properly configured"""
+        try:
+            import camelot
+            return True
+        except Exception:
+            logger.warning("Camelot not available for PDF table extraction")
+            return False
+
+    async def extract_tables(
+        self, 
+        file_path: str, 
+        options: Dict[str, Any] = None,
+        progress_callback: Optional[Callable[[float], None]] = None
+    ) -> TableExtractionResult:
+        """Extract tables from document"""
+        options = options or {}
+        
+        try:
+            file_extension = os.path.splitext(file_path)[1].lower()
+            
+            if progress_callback:
+                progress_callback(10)
+            
+            if file_extension == '.pdf':
+                tables = await self._extract_from_pdf(file_path, options, progress_callback)
+            elif file_extension in ['.doc', '.docx']:
+                tables = await self._extract_from_word(file_path, options, progress_callback)
+            elif file_extension in ['.png', '.jpg', '.jpeg', '.gif', '.bmp', '.tiff']:
+                tables = await self._extract_from_image(file_path, options, progress_callback)
+            else:
+                tables = []
+                logger.warning(f"Table extraction not supported for file type: {file_extension}")
+            
+            if progress_callback:
+                progress_callback(100)
+            
+            return TableExtractionResult(tables=tables)
+            
+        except Exception as e:
+            logger.error(f"Error extracting tables from {file_path}: {e}")
+            raise
+
+    async def _extract_from_pdf(
+        self, 
+        file_path: str, 
+        options: Dict[str, Any],
+        progress_callback: Optional[Callable[[float], None]] = None
+    ) -> List[TableData]:
+        """Extract tables from PDF"""
+        tables = []
+        
+        try:
+            # Method 1: Use Camelot (more accurate for well-formatted tables)
+            if self.camelot_available and options.get('use_camelot', True):
+                tables.extend(await self._extract_pdf_camelot(file_path, options, progress_callback))
+            
+            # Method 2: Use pdfplumber (fallback or additional extraction)
+            if options.get('use_pdfplumber', True):
+                pdfplumber_tables = await self._extract_pdf_pdfplumber(file_path, options, progress_callback)
+                
+                # Merge or choose best tables
+                if not tables:
+                    tables.extend(pdfplumber_tables)
+                elif options.get('merge_table_methods', False):
+                    tables.extend(pdfplumber_tables)
+            
+            return tables
+            
+        except Exception as e:
+            logger.error(f"Error extracting tables from PDF {file_path}: {e}")
+            raise
+
+    async def _extract_pdf_camelot(
+        self, 
+        file_path: str, 
+        options: Dict[str, Any],
+        progress_callback: Optional[Callable[[float], None]] = None
+    ) -> List[TableData]:
+        """Extract tables using Camelot"""
+        tables = []
+        
+        try:
+            if progress_callback:
+                progress_callback(20)
+            
+            # Camelot parameters
+            flavor = options.get('camelot_flavor', 'lattice')  # 'lattice' or 'stream'
+            pages = options.get('pages', 'all')
+            
+            # Extract tables
+            camelot_tables = camelot.read_pdf(
+                file_path, 
+                flavor=flavor, 
+                pages=pages,
+                suppress_stdout=True
+            )
+            
+            total_tables = len(camelot_tables)
+            
+            for i, table in enumerate(camelot_tables):
+                if progress_callback:
+                    progress = 30 + (i / total_tables) * 40
+                    progress_callback(progress)
+                
+                # Convert to our format
+                df = table.df
+                
+                # Extract headers (first row)
+                headers = df.iloc[0].tolist() if not df.empty else []
+                
+                # Extract data (remaining rows)
+                data = df.iloc[1:].values.tolist() if len(df) > 1 else []
+                
+                # Get table position information
+                position = {
+                    'page': table.page,
+                    'coordinates': [table.bbox],
+                    'accuracy': table.accuracy if hasattr(table, 'accuracy') else 0.0
+                }
+                
+                tables.append(TableData(
+                    data=data,
+                    headers=headers,
+                    position=position
+                ))
+                
+                # Small delay for other tasks
+                await asyncio.sleep(0.01)
+            
+            if progress_callback:
+                progress_callback(70)
+            
+            logger.info(f"Extracted {len(tables)} tables using Camelot")
+            return tables
+            
+        except Exception as e:
+            logger.error(f"Error extracting tables with Camelot: {e}")
+            return []
+
+    async def _extract_pdf_pdfplumber(
+        self, 
+        file_path: str, 
+        options: Dict[str, Any],
+        progress_callback: Optional[Callable[[float], None]] = None
+    ) -> List[TableData]:
+        """Extract tables using pdfplumber"""
+        tables = []
+        
+        try:
+            if progress_callback:
+                progress_callback(20)
+            
+            with pdfplumber.open(file_path) as pdf:
+                total_pages = len(pdf.pages)
+                
+                for page_num, page in enumerate(pdf.pages):
+                    if progress_callback:
+                        progress = 30 + (page_num / total_pages) * 40
+                        progress_callback(progress)
+                    
+                    # Find tables on the page
+                    page_tables = page.find_tables()
+                    
+                    for table_num, table in enumerate(page_tables):
+                        try:
+                            # Extract table data
+                            table_data = table.extract()
+                            
+                            if not table_data:
+                                continue
+                            
+                            # Extract headers and data
+                            headers = table_data[0] if table_data else []
+                            data = table_data[1:] if len(table_data) > 1 else []
+                            
+                            # Get table position
+                            position = {
+                                'page': page_num + 1,
+                                'coordinates': table.bbox,
+                                'table_number': table_num + 1
+                            }
+                            
+                            tables.append(TableData(
+                                data=data,
+                                headers=headers,
+                                position=position
+                            ))
+                            
+                        except Exception as e:
+                            logger.warning(f"Error extracting table {table_num} from page {page_num + 1}: {e}")
+                            continue
+                    
+                    # Small delay for other tasks
+                    await asyncio.sleep(0.01)
+            
+            if progress_callback:
+                progress_callback(70)
+            
+            logger.info(f"Extracted {len(tables)} tables using pdfplumber")
+            return tables
+            
+        except Exception as e:
+            logger.error(f"Error extracting tables with pdfplumber: {e}")
+            return []
+
+    async def _extract_from_word(
+        self, 
+        file_path: str, 
+        options: Dict[str, Any],
+        progress_callback: Optional[Callable[[float], None]] = None
+    ) -> List[TableData]:
+        """Extract tables from Word documents"""
+        tables = []
+        
+        try:
+            if not file_path.endswith('.docx'):
+                logger.warning("Table extraction only supported for .docx files")
+                return tables
+            
+            if progress_callback:
+                progress_callback(20)
+            
+            doc = Document(file_path)
+            doc_tables = doc.tables
+            
+            total_tables = len(doc_tables)
+            
+            for i, table in enumerate(doc_tables):
+                if progress_callback:
+                    progress = 30 + (i / total_tables) * 60
+                    progress_callback(progress)
+                
+                # Extract table data
+                table_data = []
+                headers = []
+                
+                for row_num, row in enumerate(table.rows):
+                    row_data = []
+                    for cell in row.cells:
+                        cell_text = cell.text.strip()
+                        row_data.append(cell_text)
+                    
+                    if row_num == 0:
+                        headers = row_data
+                    else:
+                        table_data.append(row_data)
+                
+                # Position information
+                position = {
+                    'page': 1,  # Word doesn't provide page info easily
+                    'table_number': i + 1,
+                    'rows': len(table.rows),
+                    'columns': len(table.columns)
+                }
+                
+                tables.append(TableData(
+                    data=table_data,
+                    headers=headers,
+                    position=position
+                ))
+                
+                # Small delay for other tasks
+                await asyncio.sleep(0.01)
+            
+            if progress_callback:
+                progress_callback(90)
+            
+            logger.info(f"Extracted {len(tables)} tables from Word document")
+            return tables
+            
+        except Exception as e:
+            logger.error(f"Error extracting tables from Word document: {e}")
+            return []
+
+    async def _extract_from_image(
+        self, 
+        file_path: str, 
+        options: Dict[str, Any],
+        progress_callback: Optional[Callable[[float], None]] = None
+    ) -> List[TableData]:
+        """Extract tables from images using computer vision"""
+        tables = []
+        
+        try:
+            if progress_callback:
+                progress_callback(20)
+            
+            # Load image
+            img = cv2.imread(file_path)
+            if img is None:
+                raise ValueError("Could not load image")
+            
+            # Convert to grayscale
+            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+            
+            if progress_callback:
+                progress_callback(40)
+            
+            # Detect table structure
+            table_regions = await self._detect_table_regions(gray)
+            
+            if progress_callback:
+                progress_callback(60)
+            
+            # Extract data from each detected table
+            for i, region in enumerate(table_regions):
+                if progress_callback:
+                    progress = 70 + (i / len(table_regions)) * 20
+                    progress_callback(progress)
+                
+                table_data = await self._extract_table_from_region(gray, region, options)
+                if table_data:
+                    tables.append(table_data)
+                
+                # Small delay for other tasks
+                await asyncio.sleep(0.01)
+            
+            if progress_callback:
+                progress_callback(90)
+            
+            logger.info(f"Extracted {len(tables)} tables from image")
+            return tables
+            
+        except Exception as e:
+            logger.error(f"Error extracting tables from image: {e}")
+            return []
+
+    async def _detect_table_regions(self, gray_img: np.ndarray) -> List[Dict[str, Any]]:
+        """Detect table regions in image using computer vision"""
+        try:
+            # Apply threshold to get binary image
+            _, thresh = cv2.threshold(gray_img, 127, 255, cv2.THRESH_BINARY_INV)
+            
+            # Detect horizontal and vertical lines
+            horizontal_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (40, 1))
+            vertical_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (1, 40))
+            
+            horizontal_lines = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, horizontal_kernel)
+            vertical_lines = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, vertical_kernel)
+            
+            # Combine lines to find table structure
+            table_mask = cv2.addWeighted(horizontal_lines, 0.5, vertical_lines, 0.5, 0.0)
+            
+            # Find contours
+            contours, _ = cv2.findContours(table_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            
+            regions = []
+            for contour in contours:
+                # Filter by area
+                area = cv2.contourArea(contour)
+                if area > 1000:  # Minimum table size
+                    x, y, w, h = cv2.boundingRect(contour)
+                    regions.append({
+                        'x': x, 'y': y, 'width': w, 'height': h,
+                        'area': area
+                    })
+            
+            return regions
+            
+        except Exception as e:
+            logger.error(f"Error detecting table regions: {e}")
+            return []
+
+    async def _extract_table_from_region(
+        self, 
+        img: np.ndarray, 
+        region: Dict[str, Any], 
+        options: Dict[str, Any]
+    ) -> Optional[TableData]:
+        """Extract table data from detected region using OCR"""
+        try:
+            # Extract region of interest
+            x, y, w, h = region['x'], region['y'], region['width'], region['height']
+            roi = img[y:y+h, x:x+w]
+            
+            # Use OCR to extract text (simplified implementation)
+            # In a real implementation, you would need more sophisticated
+            # cell detection and OCR processing
+            
+            # For now, return a placeholder table
+            headers = ['Column 1', 'Column 2', 'Column 3']
+            data = [
+                ['Row 1 Cell 1', 'Row 1 Cell 2', 'Row 1 Cell 3'],
+                ['Row 2 Cell 1', 'Row 2 Cell 2', 'Row 2 Cell 3']
+            ]
+            
+            position = {
+                'page': 1,
+                'coordinates': [x, y, x+w, y+h],
+                'extraction_method': 'computer_vision'
+            }
+            
+            return TableData(
+                data=data,
+                headers=headers,
+                position=position
+            )
+            
+        except Exception as e:
+            logger.error(f"Error extracting table from region: {e}")
+            return None
+```

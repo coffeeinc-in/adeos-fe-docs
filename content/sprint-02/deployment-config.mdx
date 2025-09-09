@@ -1,0 +1,1042 @@
+# Deployment Configuration and Setup
+
+## Complete Deployment Configuration Files
+
+### Docker Compose Configuration (docker-compose.yml)
+
+```yaml
+version: '3.8'
+
+services:
+  # Redis for queue management and pub/sub
+  redis:
+    image: redis:7-alpine
+    container_name: document-processing-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+      - ./infrastructure/redis/redis.conf:/usr/local/etc/redis/redis.conf
+    command: redis-server /usr/local/etc/redis/redis.conf
+    networks:
+      - document-processing-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Python Backend API
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: document-processing-backend
+    ports:
+      - "8000:8000"
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_DB=0
+      - UPLOAD_DIR=/app/uploads
+      - MAX_FILE_SIZE=104857600  # 100MB
+      - MAX_CONCURRENT_JOBS=5
+      - JOB_TIMEOUT=1800
+      - ALLOWED_ORIGINS=http://localhost:3000,http://frontend:3000
+      - ENVIRONMENT=production
+    volumes:
+      - ./backend/uploads:/app/uploads
+      - ./backend/logs:/app/logs
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - document-processing-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # WebSocket Server
+  websocket-server:
+    build:
+      context: ./websocket-server
+      dockerfile: Dockerfile
+    container_name: document-processing-websocket
+    ports:
+      - "8001:8001"
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_DB=0
+      - PORT=8001
+      - ALLOWED_ORIGINS=http://localhost:3000,http://frontend:3000
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - document-processing-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Next.js Frontend
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: document-processing-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
+      - NEXT_PUBLIC_WS_URL=ws://localhost:8001
+      - NODE_ENV=production
+    depends_on:
+      - backend
+      - websocket-server
+    networks:
+      - document-processing-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Nginx Reverse Proxy
+  nginx:
+    image: nginx:alpine
+    container_name: document-processing-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./infrastructure/nginx/nginx.conf:/etc/nginx/nginx.conf
+      - ./infrastructure/nginx/ssl:/etc/nginx/ssl
+    depends_on:
+      - frontend
+      - backend
+      - websocket-server
+    networks:
+      - document-processing-network
+    restart: unless-stopped
+
+volumes:
+  redis_data:
+    driver: local
+
+networks:
+  document-processing-network:
+    driver: bridge
+```
+
+### Redis Configuration (infrastructure/redis/redis.conf)
+
+```conf
+# Redis Configuration for Document Processing System
+
+# Network and Security
+bind 0.0.0.0
+port 6379
+protected-mode yes
+
+# Memory Management
+maxmemory 512mb
+maxmemory-policy allkeys-lru
+
+# Persistence
+save 900 1
+save 300 10
+save 60 10000
+
+# RDB Compression
+rdbcompression yes
+rdbchecksum yes
+dbfilename dump.rdb
+dir /data
+
+# AOF (Append Only File)
+appendonly yes
+appendfilename "appendonly.aof"
+appendfsync everysec
+no-appendfsync-on-rewrite no
+auto-aof-rewrite-percentage 100
+auto-aof-rewrite-min-size 64mb
+
+# Logging
+loglevel notice
+logfile ""
+
+# Pub/Sub
+timeout 300
+tcp-keepalive 300
+
+# Client Management
+maxclients 10000
+
+# Slow Log
+slowlog-log-slower-than 10000
+slowlog-max-len 128
+
+# Performance
+tcp-backlog 511
+databases 16
+```
+
+### Nginx Configuration (infrastructure/nginx/nginx.conf)
+
+```nginx
+user nginx;
+worker_processes auto;
+error_log /var/log/nginx/error.log warn;
+pid /var/run/nginx.pid;
+
+events {
+    worker_connections 1024;
+    use epoll;
+    multi_accept on;
+}
+
+http {
+    include /etc/nginx/mime.types;
+    default_type application/octet-stream;
+
+    # Logging
+    log_format main '$remote_addr - $remote_user [$time_local] "$request" '
+                    '$status $body_bytes_sent "$http_referer" '
+                    '"$http_user_agent" "$http_x_forwarded_for"';
+
+    access_log /var/log/nginx/access.log main;
+
+    # Performance
+    sendfile on;
+    tcp_nopush on;
+    tcp_nodelay on;
+    keepalive_timeout 65;
+    types_hash_max_size 2048;
+    client_max_body_size 100M;
+
+    # Compression
+    gzip on;
+    gzip_vary on;
+    gzip_min_length 1024;
+    gzip_types
+        text/plain
+        text/css
+        text/xml
+        text/javascript
+        application/json
+        application/javascript
+        application/xml+rss
+        application/atom+xml
+        image/svg+xml;
+
+    # Rate Limiting
+    limit_req_zone $binary_remote_addr zone=api:10m rate=10r/s;
+    limit_req_zone $binary_remote_addr zone=uploads:10m rate=2r/s;
+
+    # Upstream servers
+    upstream backend {
+        server backend:8000;
+        keepalive 32;
+    }
+
+    upstream websocket {
+        server websocket-server:8001;
+        keepalive 32;
+    }
+
+    upstream frontend {
+        server frontend:3000;
+        keepalive 32;
+    }
+
+    # Main server block
+    server {
+        listen 80;
+        server_name localhost;
+
+        # Security headers
+        add_header X-Frame-Options "SAMEORIGIN" always;
+        add_header X-XSS-Protection "1; mode=block" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header Referrer-Policy "no-referrer-when-downgrade" always;
+        add_header Content-Security-Policy "default-src 'self' http: https: data: blob: 'unsafe-inline'" always;
+
+        # Frontend (Next.js)
+        location / {
+            proxy_pass http://frontend;
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection 'upgrade';
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_cache_bypass $http_upgrade;
+            proxy_redirect off;
+        }
+
+        # Backend API
+        location /api {
+            limit_req zone=api burst=20 nodelay;
+            proxy_pass http://backend;
+            proxy_http_version 1.1;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_redirect off;
+            
+            # Increase timeouts for long-running uploads
+            proxy_read_timeout 300;
+            proxy_connect_timeout 300;
+            proxy_send_timeout 300;
+        }
+
+        # File uploads with special rate limiting
+        location /api/process {
+            limit_req zone=uploads burst=5 nodelay;
+            proxy_pass http://backend;
+            proxy_http_version 1.1;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_redirect off;
+            
+            # Extended timeouts and size limits for uploads
+            proxy_read_timeout 600;
+            proxy_connect_timeout 600;
+            proxy_send_timeout 600;
+            client_max_body_size 100M;
+        }
+
+        # WebSocket connections
+        location /ws {
+            proxy_pass http://websocket;
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection "upgrade";
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_cache_bypass $http_upgrade;
+            proxy_redirect off;
+            
+            # WebSocket specific settings
+            proxy_buffering off;
+            proxy_read_timeout 86400;
+            proxy_send_timeout 86400;
+        }
+
+        # Health check endpoint
+        location /health {
+            access_log off;
+            proxy_pass http://backend;
+            proxy_http_version 1.1;
+            proxy_set_header Host $host;
+        }
+
+        # Static file serving with caching
+        location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {
+            proxy_pass http://frontend;
+            proxy_http_version 1.1;
+            proxy_set_header Host $host;
+            expires 1y;
+            add_header Cache-Control "public, immutable";
+        }
+    }
+
+    # SSL server block (uncomment and configure for HTTPS)
+    # server {
+    #     listen 443 ssl http2;
+    #     server_name localhost;
+    #
+    #     ssl_certificate /etc/nginx/ssl/cert.pem;
+    #     ssl_certificate_key /etc/nginx/ssl/key.pem;
+    #     ssl_session_timeout 1d;
+    #     ssl_session_cache shared:MozTLS:10m;
+    #     ssl_session_tickets off;
+    #
+    #     ssl_protocols TLSv1.2 TLSv1.3;
+    #     ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256;
+    #     ssl_prefer_server_ciphers off;
+    #
+    #     # HSTS
+    #     add_header Strict-Transport-Security "max-age=63072000" always;
+    #
+    #     # Include the same location blocks as the HTTP server
+    # }
+}
+```
+
+### Backend Dockerfile (backend/Dockerfile)
+
+```dockerfile
+FROM python:3.11-slim
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    curl \
+    libpoppler-cpp-dev \
+    poppler-utils \
+    tesseract-ocr \
+    tesseract-ocr-eng \
+    libtesseract-dev \
+    libsm6 \
+    libxext6 \
+    libxrender-dev \
+    libglib2.0-0 \
+    libgtk-3-dev \
+    ghostscript \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set working directory
+WORKDIR /app
+
+# Copy requirements first for better caching
+COPY requirements.txt .
+
+# Install Python dependencies
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy application code
+COPY . .
+
+# Create necessary directories
+RUN mkdir -p uploads logs
+
+# Set environment variables
+ENV PYTHONPATH=/app
+ENV PYTHONUNBUFFERED=1
+
+# Expose port
+EXPOSE 8000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:8000/health || exit 1
+
+# Run the application
+CMD ["python", "-m", "app.main"]
+```
+
+### Backend Requirements (backend/requirements.txt)
+
+```txt
+# FastAPI and dependencies
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+python-multipart==0.0.6
+pydantic==2.5.0
+pydantic-settings==2.1.0
+
+# Redis
+redis==5.0.1
+
+# Document processing
+PyPDF2==3.0.1
+pdfplumber==0.10.3
+camelot-py[cv]==0.11.0
+python-docx==1.1.0
+textract==1.6.5
+
+# Image processing and OCR
+Pillow==10.1.0
+pytesseract==0.3.10
+opencv-python-headless==4.8.1.78
+
+# Data processing
+pandas==2.1.4
+numpy==1.25.2
+
+# HTTP client
+httpx==0.25.2
+
+# Development and testing
+pytest==7.4.3
+pytest-asyncio==0.21.1
+black==23.11.0
+flake8==6.1.0
+```
+
+### WebSocket Server Dockerfile (websocket-server/Dockerfile)
+
+```dockerfile
+FROM node:18-alpine
+
+# Set working directory
+WORKDIR /app
+
+# Copy package files
+COPY package*.json ./
+
+# Install dependencies
+RUN npm ci --only=production && npm cache clean --force
+
+# Copy source code
+COPY src ./src
+
+# Create non-root user
+RUN addgroup -g 1001 -S nodejs && \
+    adduser -S nodejs -u 1001
+
+# Change ownership
+RUN chown -R nodejs:nodejs /app
+USER nodejs
+
+# Expose port
+EXPOSE 8001
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:8001/health || exit 1
+
+# Start the server
+CMD ["node", "src/index.js"]
+```
+
+### Frontend Dockerfile (frontend/Dockerfile)
+
+```dockerfile
+FROM node:18-alpine AS builder
+
+WORKDIR /app
+
+# Copy package files
+COPY package*.json ./
+
+# Install dependencies
+RUN npm ci
+
+# Copy source code
+COPY . .
+
+# Build the application
+RUN npm run build
+
+# Production image
+FROM node:18-alpine AS runner
+
+WORKDIR /app
+
+# Create non-root user
+RUN addgroup --system --gid 1001 nodejs && \
+    adduser --system --uid 1001 nextjs
+
+# Copy built application
+COPY --from=builder /app/public ./public
+COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
+COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+
+USER nextjs
+
+EXPOSE 3000
+
+ENV PORT 3000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:3000 || exit 1
+
+CMD ["node", "server.js"]
+```
+
+### Frontend Next.js Configuration (frontend/next.config.js)
+
+```javascript
+/** @type {import('next').NextConfig} */
+const nextConfig = {
+  experimental: {
+    appDir: true,
+  },
+  output: 'standalone',
+  
+  // WebSocket and API configuration
+  async rewrites() {
+    return [
+      {
+        source: '/api/:path*',
+        destination: `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/:path*`,
+      },
+    ];
+  },
+
+  // Headers for WebSocket support
+  async headers() {
+    return [
+      {
+        source: '/(.*)',
+        headers: [
+          {
+            key: 'X-Frame-Options',
+            value: 'DENY',
+          },
+          {
+            key: 'X-Content-Type-Options',
+            value: 'nosniff',
+          },
+          {
+            key: 'Referrer-Policy',
+            value: 'origin-when-cross-origin',
+          },
+        ],
+      },
+    ];
+  },
+
+  // Image optimization
+  images: {
+    domains: ['localhost'],
+    formats: ['image/avif', 'image/webp'],
+  },
+
+  // Environment variables
+  env: {
+    NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL,
+    NEXT_PUBLIC_WS_URL: process.env.NEXT_PUBLIC_WS_URL,
+  },
+};
+
+module.exports = nextConfig;
+```
+
+### Environment Configuration (.env.example)
+
+```env
+# Redis Configuration
+REDIS_HOST=localhost
+REDIS_PORT=6379
+REDIS_PASSWORD=
+REDIS_DB=0
+
+# Backend Configuration
+BACKEND_PORT=8000
+UPLOAD_DIR=uploads
+MAX_FILE_SIZE=104857600
+MAX_CONCURRENT_JOBS=5
+JOB_TIMEOUT=1800
+ALLOWED_ORIGINS=http://localhost:3000
+
+# WebSocket Server Configuration
+WEBSOCKET_PORT=8001
+
+# Frontend Configuration
+NEXT_PUBLIC_API_URL=http://localhost:8000
+NEXT_PUBLIC_WS_URL=ws://localhost:8001
+NODE_ENV=development
+
+# Security
+JWT_SECRET=your-jwt-secret-here
+ENCRYPTION_KEY=your-encryption-key-here
+
+# Logging
+LOG_LEVEL=info
+LOG_FILE=/app/logs/app.log
+
+# External Services
+STORAGE_BUCKET=your-s3-bucket
+AWS_ACCESS_KEY_ID=your-aws-key
+AWS_SECRET_ACCESS_KEY=your-aws-secret
+AWS_REGION=us-east-1
+```
+
+### Kubernetes Deployment (k8s/deployment.yaml)
+
+```yaml
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: document-processing
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  namespace: document-processing
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+    spec:
+      containers:
+      - name: redis
+        image: redis:7-alpine
+        ports:
+        - containerPort: 6379
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        volumeMounts:
+        - name: redis-data
+          mountPath: /data
+      volumes:
+      - name: redis-data
+        persistentVolumeClaim:
+          claimName: redis-pvc
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-service
+  namespace: document-processing
+spec:
+  selector:
+    app: redis
+  ports:
+  - port: 6379
+    targetPort: 6379
+  type: ClusterIP
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+  namespace: document-processing
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: backend
+  template:
+    metadata:
+      labels:
+        app: backend
+    spec:
+      containers:
+      - name: backend
+        image: document-processing/backend:latest
+        ports:
+        - containerPort: 8000
+        env:
+        - name: REDIS_HOST
+          value: "redis-service"
+        - name: REDIS_PORT
+          value: "6379"
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "500m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 5
+          periodSeconds: 5
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend-service
+  namespace: document-processing
+spec:
+  selector:
+    app: backend
+  ports:
+  - port: 8000
+    targetPort: 8000
+  type: ClusterIP
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: websocket-server
+  namespace: document-processing
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: websocket-server
+  template:
+    metadata:
+      labels:
+        app: websocket-server
+    spec:
+      containers:
+      - name: websocket-server
+        image: document-processing/websocket-server:latest
+        ports:
+        - containerPort: 8001
+        env:
+        - name: REDIS_HOST
+          value: "redis-service"
+        - name: REDIS_PORT
+          value: "6379"
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: websocket-service
+  namespace: document-processing
+spec:
+  selector:
+    app: websocket-server
+  ports:
+  - port: 8001
+    targetPort: 8001
+  type: ClusterIP
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: document-processing-ingress
+  namespace: document-processing
+  annotations:
+    kubernetes.io/ingress.class: "nginx"
+    nginx.ingress.kubernetes.io/proxy-body-size: "100m"
+    nginx.ingress.kubernetes.io/websocket-services: "websocket-service"
+spec:
+  rules:
+  - host: document-processing.example.com
+    http:
+      paths:
+      - path: /api
+        pathType: Prefix
+        backend:
+          service:
+            name: backend-service
+            port:
+              number: 8000
+      - path: /ws
+        pathType: Prefix
+        backend:
+          service:
+            name: websocket-service
+            port:
+              number: 8001
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: frontend-service
+            port:
+              number: 3000
+```
+
+### Monitoring with Prometheus (monitoring/prometheus.yml)
+
+```yaml
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  - "alert-rules.yml"
+
+scrape_configs:
+  - job_name: 'document-processing-backend'
+    static_configs:
+      - targets: ['backend:8000']
+    metrics_path: /metrics
+    scrape_interval: 30s
+
+  - job_name: 'document-processing-websocket'
+    static_configs:
+      - targets: ['websocket-server:8001']
+    metrics_path: /metrics
+    scrape_interval: 30s
+
+  - job_name: 'redis'
+    static_configs:
+      - targets: ['redis:6379']
+    scrape_interval: 30s
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+          - alertmanager:9093
+```
+
+### Deployment Scripts (scripts/deploy.sh)
+
+```bash
+#!/bin/bash
+
+set -e
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m' # No Color
+
+echo -e "${GREEN}Starting Document Processing System deployment...${NC}"
+
+# Check if Docker is running
+if ! docker info > /dev/null 2>&1; then
+    echo -e "${RED}Docker is not running. Please start Docker and try again.${NC}"
+    exit 1
+fi
+
+# Check if docker-compose is available
+if ! command -v docker-compose &> /dev/null; then
+    echo -e "${RED}docker-compose is not installed. Please install it and try again.${NC}"
+    exit 1
+fi
+
+# Create necessary directories
+echo -e "${YELLOW}Creating necessary directories...${NC}"
+mkdir -p backend/uploads backend/logs
+mkdir -p infrastructure/nginx/ssl
+
+# Copy environment file if it doesn't exist
+if [ ! -f .env ]; then
+    echo -e "${YELLOW}Creating .env file from template...${NC}"
+    cp .env.example .env
+    echo -e "${YELLOW}Please edit .env file with your configuration before running again.${NC}"
+    exit 1
+fi
+
+# Build and start services
+echo -e "${YELLOW}Building Docker images...${NC}"
+docker-compose build
+
+echo -e "${YELLOW}Starting services...${NC}"
+docker-compose up -d
+
+# Wait for services to be healthy
+echo -e "${YELLOW}Waiting for services to be healthy...${NC}"
+sleep 30
+
+# Check service health
+services=("redis" "backend" "websocket-server" "frontend")
+for service in "${services[@]}"; do
+    if docker-compose ps | grep -q "${service}.*Up"; then
+        echo -e "${GREEN}✓ ${service} is running${NC}"
+    else
+        echo -e "${RED}✗ ${service} failed to start${NC}"
+        docker-compose logs ${service}
+        exit 1
+    fi
+done
+
+echo -e "${GREEN}🎉 Document Processing System deployed successfully!${NC}"
+echo -e "${GREEN}Frontend: http://localhost:3000${NC}"
+echo -e "${GREEN}Backend API: http://localhost:8000${NC}"
+echo -e "${GREEN}WebSocket: ws://localhost:8001${NC}"
+echo -e "${GREEN}Redis: localhost:6379${NC}"
+
+echo -e "${YELLOW}To view logs: docker-compose logs -f${NC}"
+echo -e "${YELLOW}To stop services: docker-compose down${NC}"
+```
+
+### Development Setup Script (scripts/dev-setup.sh)
+
+```bash
+#!/bin/bash
+
+set -e
+
+echo "Setting up development environment..."
+
+# Install backend dependencies
+echo "Setting up Python backend..."
+cd backend
+python -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+cd ..
+
+# Install WebSocket server dependencies
+echo "Setting up WebSocket server..."
+cd websocket-server
+npm install
+cd ..
+
+# Install frontend dependencies
+echo "Setting up Next.js frontend..."
+cd frontend
+npm install
+cd ..
+
+# Start Redis for development
+echo "Starting Redis for development..."
+docker run -d --name dev-redis -p 6379:6379 redis:7-alpine
+
+echo "Development environment setup complete!"
+echo "To start development servers:"
+echo "  Backend: cd backend && source venv/bin/activate && python -m app.main"
+echo "  WebSocket: cd websocket-server && npm run dev"
+echo "  Frontend: cd frontend && npm run dev"
+```
+
+## Usage Instructions
+
+### Quick Start with Docker Compose
+
+1. **Clone and navigate to project directory**
+2. **Copy environment file**: `cp .env.example .env`
+3. **Edit .env file** with your configuration
+4. **Run deployment script**: `./scripts/deploy.sh`
+5. **Access the application** at `http://localhost:3000`
+
+### Development Setup
+
+1. **Run development setup**: `./scripts/dev-setup.sh`
+2. **Start each service individually** in separate terminals
+3. **Access the application** at `http://localhost:3000`
+
+### Kubernetes Deployment
+
+1. **Apply namespace**: `kubectl apply -f k8s/namespace.yaml`
+2. **Apply configurations**: `kubectl apply -f k8s/`
+3. **Configure ingress** for your domain
+4. **Access via ingress URL**
+
+### Monitoring and Observability
+
+- **Health checks**: All services include health check endpoints
+- **Logging**: Centralized logging with structured format
+- **Metrics**: Prometheus-compatible metrics endpoints
+- **Alerting**: Configurable alerts for system health
+
+### Security Considerations
+
+- **Rate limiting** implemented in Nginx
+- **File upload validation** and size limits
+- **CORS configuration** for cross-origin requests
+- **Security headers** in Nginx configuration
+- **SSL/TLS support** ready for production use
