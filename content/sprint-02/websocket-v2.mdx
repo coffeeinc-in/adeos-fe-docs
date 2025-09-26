@@ -1,0 +1,407 @@
+## Summary
+
+This redesigned ADEOS architecture with Pusher provides:
+
+### Key Benefits
+1. **Simplified Infrastructure**: No custom WebSocket server to maintain
+2. **Built-in Scalability**: Pusher handles millions of concurrent connections
+3. **Global Distribution**: Low latency with Pusher's global infrastructure
+4. **Reliability**: Automatic failover and redundancy
+5. **Security**: Built-in authentication and encryption
+6. **Monitoring**: Rich metrics and debugging tools
+
+### Best Practices Implemented
+1. **Graceful Degradation**: Automatic fallback to polling
+2. **Error Recovery**: Exponential backoff and retry logic
+3. **State Management**: Optimistic updates with reconciliation
+4. **Performance**: Message batching and throttling
+5. **Security**: Channel authorization and rate limiting
+6. **Monitoring**: Comprehensive metrics and alerting
+
+### Exception Handling
+1. **Connection Failures**: Automatic reconnection with backoff
+2. **Authentication Errors**: Token refresh mechanism
+3. **Rate Limiting**: Client-side throttling and queue management
+4. **Network Partitions**: State reconciliation on reconnection
+5. **Processing Failures**: Individual retry with circuit breaker
+
+This architecture ensures robust, scalable, and maintainable real-time annotation processing for ADEOS.# ADEOS Pusher Architecture for Annotation Processing
+
+## Overview
+
+This document outlines the redesigned architecture for ADEOS (Annotation Detection and Extraction Optimization System) using **Pusher** for real-time communication instead of a custom WebSocket server. The system handles document annotation processing with real-time progress updates for text extraction, table extraction, and diagram extraction using Pusher's managed infrastructure.
+
+## Architecture Components
+
+### System Architecture with Pusher
+
+```
+┌─────────────────┐                 ┌──────────────────┐
+│  ADEOS Frontend │  Annotation     │  Python Backend  │
+│   (Next.js 15)  │  Processing     │      (API)       │
+│                 │  Requests       │                  │
+│ ┌─ImageAnnotator─┤ ──────────────→ │  ┌─Annotation────┤
+│ ├─ContentTabs────┤                 │  │  Processing   │
+│ ├─PageHeader─────┤                 │  │  Service      │
+│ ├─PageTabs───────┤                 │  └───────────────┤
+│ ├─AnnotationCtrl┤                 │  ┌─Pusher────────┤
+│ │               │                 │  │  Publisher    │
+│ │ ┌─Pusher──────┤                 │  └───────────────┤
+│ │ │ Context     │                 └─────────┬────────┘
+│ │ │ - Processing│                           │
+│ │ │   State     │                           │ Publish Events
+│ │ │ - Channel   │                           ▼
+│ │ │   Manager   │                 ┌──────────────────┐
+│ │ └─────────────┤                 │     Pusher       │
+└─────────┬───────┘                 │   Cloud Service  │
+          │                         │  ┌─Channels──────┤
+          │ Subscribe to            │  ├─Presence──────┤
+          │ Real-time Events        │  ├─Private───────┤
+          ▼                         │  └─Webhooks──────┤
+┌─────────────────┐                 └──────────────────┘
+│  Pusher Client  │                           ▲
+│    (pusher-js)  │                           │
+└─────────────────┘                           │
+          ▲                                   │
+          └───────────────────────────────────┘
+                    Real-time Updates
+                    
+┌──────────────────┐
+│      Redis       │
+│  ┌─Batch Jobs────┤
+│  ├─Progress──────┤
+│  ├─Results───────┤
+│  └─State Cache───┤
+└──────────────────┘
+```
+
+## Detailed Flow Diagrams
+
+### 1. Initial Connection and Authentication Flow
+
+```mermaid
+sequenceDiagram
+    participant U as User/Browser
+    participant F as Frontend (Next.js)
+    participant PC as Pusher Client
+    participant B as Backend API
+    participant P as Pusher Cloud
+    participant R as Redis
+
+    Note over U,P: Initial Setup Phase
+    
+    U->>F: Load application
+    F->>F: Initialize PusherContext
+    F->>B: Request Pusher auth token
+    Note right of B: Validate user session
+    B->>B: Generate channel auth signature
+    B->>F: Return Pusher credentials
+    
+    F->>PC: Initialize Pusher client
+    PC->>P: Connect with app key
+    P->>PC: Connection established
+    
+    Note over PC,P: Channel Subscription
+    PC->>P: Subscribe to private-user-{userId}
+    P->>B: Webhook: channel_occupied
+    B->>R: Store user presence
+    
+    PC->>P: Subscribe to presence-file-{fileId}
+    P->>B: Webhook: member_added
+    B->>R: Update file collaborators
+    
+    F->>F: Set connection status: connected
+```
+
+### 2. Batch Processing Request Flow
+
+```mermaid
+sequenceDiagram
+    participant IC as ImageAnnotator
+    participant PC as PusherContext
+    participant B as Backend API
+    participant R as Redis
+    participant Q as Queue Worker
+    participant P as Pusher Cloud
+    
+    Note over IC,P: Batch Creation Phase
+    
+    IC->>PC: Process annotations (batch request)
+    PC->>PC: Generate correlation_id
+    PC->>PC: Set optimistic state (processing)
+    
+    PC->>B: POST /api/batch/create
+    Note right of B: Request includes:
+    Note right of B: - annotations array
+    Note right of B: - file_id, page_number
+    Note right of B: - client_id, correlation_id
+    
+    B->>B: Validate request
+    B->>B: Generate batch_id (UUID)
+    
+    B->>R: Create batch job
+    Note right of R: Key: batch:{batch_id}
+    Note right of R: Status: pending
+    Note right of R: Created: timestamp
+    
+    B->>R: Add to processing queue
+    Note right of R: Queue: batches:pending
+    Note right of R: Priority: normal
+    
+    B->>P: Trigger event: batch-created
+    Note right of P: Channel: private-user-{userId}
+    Note right of P: Data: {batch_id, status, queue_position}
+    
+    B->>PC: Return {batch_id, estimated_time}
+    
+    PC->>PC: Store batch_id mapping
+    PC->>IC: Update UI (show progress bar)
+    
+    P->>PC: Event: batch-created
+    PC->>PC: Confirm optimistic state
+    
+    Note over Q,P: Processing Phase
+    
+    Q->>R: Poll queue for jobs
+    R->>Q: Return next batch job
+    Q->>R: Update status: processing
+    Q->>P: Trigger: batch-started
+    P->>PC: Event: batch-started
+    PC->>IC: Update UI (processing indicator)
+```
+
+### 3. Annotation Processing and Progress Updates
+
+```mermaid
+sequenceDiagram
+    participant Q as Queue Worker
+    participant EP as Extraction Processors
+    participant R as Redis
+    participant P as Pusher Cloud
+    participant PC as PusherContext
+    participant CT as ContentTabs
+    participant PH as PageHeader
+    
+    Note over Q,PH: Individual Annotation Processing
+    
+    loop For each annotation in batch
+        Q->>R: Get annotation details
+        R->>Q: Return annotation data
+        
+        Q->>EP: Process annotation
+        Note right of EP: Based on type:
+        Note right of EP: - Text Extractor
+        Note right of EP: - Table Extractor
+        Note right of EP: - Diagram Extractor
+        
+        EP->>EP: Extract content
+        EP->>EP: Calculate confidence
+        
+        alt Processing Success
+            EP->>Q: Return extracted data
+            Q->>R: Store result
+            Note right of R: Key: result:{batch_id}:{annotation_id}
+            
+            Q->>R: Update progress
+            Note right of R: completed: n/total
+            
+            Q->>P: Trigger: annotation-completed
+            Note right of P: Channel: private-batch-{batch_id}
+            Note right of P: Data: {annotation_id, result, confidence}
+            
+            P->>PC: Event: annotation-completed
+            PC->>CT: Update content display
+            PC->>PH: Update progress (n/total)
+            
+        else Processing Error
+            EP->>Q: Return error
+            Q->>R: Store error state
+            Note right of R: Key: error:{batch_id}:{annotation_id}
+            
+            Q->>P: Trigger: annotation-failed
+            Note right of P: Data: {annotation_id, error, retry_available}
+            
+            P->>PC: Event: annotation-failed
+            PC->>PC: Mark item as failed
+            PC->>PH: Show error indicator
+        end
+        
+        Q->>P: Trigger: batch-progress
+        Note right of P: Data: {completed, total, percentage}
+        P->>PC: Event: batch-progress
+        PC->>PH: Update progress bar
+    end
+```
+
+### 4. Batch Completion and Result Handling
+
+```mermaid
+sequenceDiagram
+    participant Q as Queue Worker
+    participant R as Redis
+    participant P as Pusher Cloud
+    participant PC as PusherContext
+    participant IC as ImageAnnotator
+    participant CT as ContentTabs
+    
+    Note over Q,CT: Batch Completion Phase
+    
+    Q->>R: Get all results for batch
+    R->>Q: Return results array
+    
+    Q->>Q: Calculate summary
+    Note right of Q: - Total items
+    Note right of Q: - Success count
+    Note right of Q: - Failed count
+    Note right of Q: - Processing time
+    
+    Q->>R: Update batch status
+    Note right of R: Status: completed
+    Note right of R: Completed_at: timestamp
+    
+    Q->>P: Trigger: batch-completed
+    Note right of P: Channel: private-batch-{batch_id}
+    Note right of P: Data: {results, summary, status}
+    
+    P->>PC: Event: batch-completed
+    
+    PC->>PC: Process results
+    PC->>IC: Update all annotations
+    PC->>CT: Populate all tabs
+    PC->>PC: Clear processing state
+    
+    Note over PC,R: Cleanup Phase
+    
+    PC->>PC: Schedule cache cleanup
+    Note right of PC: After 5 minutes
+    
+    PC->>R: TTL on batch data
+    Note right of R: Expire in 24 hours
+```
+
+### 5. Error Handling and Recovery Flow
+
+```mermaid
+sequenceDiagram
+    participant PC as PusherContext
+    participant P as Pusher Cloud
+    participant B as Backend API
+    participant R as Redis
+    participant IC as ImageAnnotator
+    
+    Note over PC,IC: Connection Error Scenarios
+    
+    alt Pusher Connection Lost
+        P--xPC: Connection interrupted
+        PC->>PC: Detect disconnection
+        PC->>IC: Show offline indicator
+        
+        PC->>PC: Start reconnection
+        Note right of PC: Exponential backoff:
+        Note right of PC: 1s, 2s, 4s, 8s, 16s, 30s
+        
+        loop Retry with backoff
+            PC->>P: Attempt reconnection
+            alt Success
+                P->>PC: Connected
+                PC->>PC: Resubscribe to channels
+                PC->>B: GET /api/batches/active
+                B->>R: Query active batches
+                R->>B: Return batch states
+                B->>PC: Return current states
+                PC->>PC: Reconcile state
+                PC->>IC: Update UI
+            else Failure
+                PC->>PC: Wait (backoff)
+            end
+        end
+        
+    else Batch Processing Timeout
+        PC->>PC: Detect timeout (30s)
+        PC->>B: GET /api/batch/{batch_id}/status
+        B->>R: Get batch status
+        R->>B: Return current state
+        B->>PC: Return status
+        
+        alt Still Processing
+            PC->>PC: Continue waiting
+            PC->>IC: Show extended time warning
+        else Failed
+            PC->>IC: Show error with retry
+            IC->>PC: User clicks retry
+            PC->>B: POST /api/batch/{batch_id}/retry
+            B->>R: Requeue batch
+            B->>P: Trigger: batch-retrying
+            P->>PC: Event: batch-retrying
+        end
+        
+    else Rate Limiting
+        P->>PC: Error: Rate limit exceeded
+        PC->>PC: Enable message queuing
+        PC->>PC: Batch operations
+        Note right of PC: Combine multiple
+        Note right of PC: operations into one
+        PC->>PC: Implement local throttling
+        
+    else Invalid Authentication
+        P->>PC: Error: Auth failed
+        PC->>B: POST /api/pusher/refresh-auth
+        B->>B: Generate new auth token
+        B->>PC: Return new credentials
+        PC->>P: Reconnect with new auth
+    end
+```
+
+### 6. Fallback Polling Mechanism
+
+```mermaid
+sequenceDiagram
+    participant PC as PusherContext
+    participant PS as Polling Service
+    participant B as Backend API
+    participant R as Redis
+    participant UI as UI Components
+    
+    Note over PC,UI: Fallback to Polling Mode
+    
+    PC->>PC: Detect Pusher unavailable
+    Note right of PC: After 3 failed attempts
+    
+    PC->>PS: Activate polling mode
+    PS->>PS: Set polling interval (2s)
+    
+    loop Every 2 seconds
+        PS->>B: GET /api/batches/active
+        B->>R: Query active batches
+        R->>B: Return batch list
+        B->>PS: Return active batches
+        
+        loop For each active batch
+            PS->>B: GET /api/batch/{batch_id}/status
+            B->>R: Get batch details
+            R->>B: Return current state
+            B->>PS: Return batch status
+            
+            PS->>PC: Compare with cached state
+            alt State Changed
+                PC->>PC: Update local state
+                PC->>UI: Trigger UI updates
+                
+                alt Batch Completed
+                    PS->>B: GET /api/batch/{batch_id}/results
+                    B->>R: Get full results
+                    R->>B: Return results
+                    B->>PS: Return results
+                    PS->>PC: Process results
+                    PC->>UI: Update annotations
+                end
+            end
+        end
+        
+        PS->>PC: Check Pusher recovery
+        alt Pusher Available
+            PC->>PS: Deactivate polling
+            PC->>PC: Resume Pusher mode
+        end
+    end
+```
