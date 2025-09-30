@@ -12,7 +12,7 @@ The file selection process follows a linear workflow where users upload a file, 
 graph TD
     A[User Action: Click Upload New File] --> B[Navigate to /extract]
     B --> C[User Selects PDF File]
-    C --> D[Trigger FastAPI: pdf-info]
+    C --> D[POST FastAPI: pdf-info]
     D --> E{API Response Success?}
 
     E -->|Yes| F[Store File Metadata in pdfInfo State]
@@ -22,22 +22,40 @@ graph TD
     G --> H[User Selects Page Numbers]
     H --> I[User Clicks Process Annotation Button]
 
-    I --> J[POST FastAPI: /api/utils/files/fileId/selected-pages]
-    J --> K{API Response Success?}
+    I --> I1[Parse Page Selection]
+    I1 --> I2{Valid Selection?}
+    I2 -->|No| I3[Show Validation Error]
+    I3 --> H
 
-    K -->|No| L[Show Error Message]
-    L --> H
+    I2 -->|Yes| J[POST FastAPI: get-page-image for Page 1]
+    J --> K[Store First Page Image]
+    K --> L[Show Loading UI with Progress]
 
-    K -->|Yes| M[Create New File Object]
-    M --> N[Append to Files List Locally]
-    N --> O["router.push('/files/fileId')"]
-    O --> P[File Processing Page]
+    L --> M[Prefetch Remaining Pages]
+    M --> M1[Concurrent Loading: 3 pages at a time]
+    M1 --> M2[Update Progress: loaded/total]
+    M2 --> M3{All Pages Loaded?}
+
+    M3 -->|No| M1
+    M3 -->|Yes| N[POST FastAPI: /api/utils/files/fileId/selected-pages]
+
+    N --> O{API Success?}
+    O -->|No| P[Log Error, Continue Anyway]
+    O -->|Yes| P
+
+    P --> Q[Create New File Object]
+    Q --> R[Append to Files List Locally]
+    R --> S["router.push('/files/fileId')"]
+    S --> T[File Processing Page]
 
     style A fill:#2563eb,stroke:#1e40af,stroke-width:2px,color:#fff
     style B fill:#f59e0b,stroke:#d97706,stroke-width:2px,color:#fff
     style D fill:#dc2626,stroke:#b91c1c,stroke-width:2px,color:#fff
     style J fill:#dc2626,stroke:#b91c1c,stroke-width:2px,color:#fff
-    style P fill:#16a34a,stroke:#15803d,stroke-width:2px,color:#fff
+    style N fill:#dc2626,stroke:#b91c1c,stroke-width:2px,color:#fff
+    style L fill:#f59e0b,stroke:#d97706,stroke-width:2px,color:#fff
+    style M1 fill:#f59e0b,stroke:#d97706,stroke-width:2px,color:#fff
+    style T fill:#16a34a,stroke:#15803d,stroke-width:2px,color:#fff
 ```
 
 ## Step-by-Step Flow
@@ -85,22 +103,165 @@ After receiving file metadata, the UI presents a page selection interface.
 
 ### Submit for Processing
 
-User clicks the **"Process Annotation"** button.
+User clicks the **"Process Annotation"** button to begin page processing.
+
+**Page Selection Parsing**:
+- Handles "all" keyword for all pages
+- Parses ranges (e.g., "1-5")
+- Parses individual pages (e.g., "1,3,5")
+- Validates and deduplicates page numbers
+
+**Parsed Output**:
+```typescript
+selected_pages = [1, 2, 5, 10]; // Sorted, unique page numbers
+```
+
+### Fetch First Page Image
+
+Immediately fetch the first selected page to show content as quickly as possible.
+
+**API Call**:
+```
+POST /api/utils/get-page-image
+Content-Type: multipart/form-data
+
+file: <PDF Blob>
+page: 1
+file_id: "fileId"
+dpi: 275
+```
+
+**Response**:
+```json
+{
+  "image": "data:image/png;base64,..."
+}
+```
+
+**State Update**:
+```typescript
+setProcessingState(prev => ({
+  ...prev,
+  currentPage: firstPage,
+  processedPages: selected_pages,
+  pageImages: {
+    [firstPage]: response.data.image
+  },
+  annotationMode: true
+}));
+```
+
+<Callout type="info">
+Fetching the first page immediately provides instant visual feedback while other pages load in the background.
+</Callout>
+
+### Show Loading Progress
+
+Display loading UI with progress tracking.
+
+**State**:
+```typescript
+setLoadingProgress({
+  loaded: 1,  // First page already loaded
+  total: selected_pages.length
+});
+setIsLoadingForRedirect(true);
+```
+
+**UI Components**:
+- Animated spinner with percentage
+- Progress bar showing loaded/total pages
+- Status text: "Loading X of Y pages"
+
+### Prefetch Remaining Page Images
+
+Load remaining page images in the background with controlled concurrency.
+
+**Concurrency Control**:
+```typescript
+const MAX_CONCURRENT = 3; // Maximum 3 simultaneous requests
+```
+
+**Process Flow**:
+1. Sort pages in numerical order
+2. Initialize loading status for each page (`pending`)
+3. Process queue with max 3 concurrent requests
+4. Update status for each page (`loading` → `loaded` or `error`)
+5. Track progress: `setLoadingProgress({ loaded, total })`
+
+**Implementation**:
+```typescript
+const prefetchPageImages = async (selectedPages: number[]) => {
+  const sequentialPages = [...selectedPages].sort((a, b) => a - b);
+
+  // Mark all pages as pending
+  setProcessingState(prev => ({
+    ...prev,
+    pageLoadingStatus: {
+      ...selectedPages.reduce((acc, page) => ({
+        ...acc,
+        [page]: 'pending'
+      }), {})
+    }
+  }));
+
+  // Process queue with controlled concurrency
+  const requestQueue = [...pagesToLoad];
+
+  while (requestQueue.length > 0) {
+    const page = requestQueue.shift();
+
+    // Update to loading
+    updatePageStatus(page, 'loading');
+
+    // Fetch page image
+    await fetchPageImage(page);
+
+    // Update to loaded
+    updatePageStatus(page, 'loaded');
+
+    // Update progress
+    setLoadingProgress({ loaded: ++completedPages, total });
+  }
+};
+```
+
+**Page Loading Status**:
+```typescript
+pageLoadingStatus: {
+  1: 'loaded',
+  2: 'loading',
+  3: 'pending',
+  4: 'error'
+}
+```
+
+### Persist Selected Pages
+
+Save selected pages to backend for future retrieval.
 
 **API Call**:
 ```
 POST /api/utils/files/${pdfInfo.fileId}/selected-pages
-```
+Content-Type: application/json
+Authorization: Bearer {token}
 
-**Payload**:
-```json
 {
-  "pages": [1, 2, 3, ...]
+  "pages": [1, 2, 5, 10]
 }
 ```
 
-**Headers**:
-- `Content-Type: application/json`
+**Response**:
+```json
+{
+  "success": true,
+  "message": "Selected pages saved"
+}
+```
+
+<Callout type="warning">
+This persists page selection so that when navigating to `/files/[fileId]`, the backend knows which pages to retrieve.
+</Callout>
 
 ### Append to Files List
 
@@ -158,7 +319,8 @@ router.push(`/files/${pdfInfo.fileId}`);
 | Endpoint | Method | Purpose |
 |----------|--------|---------|
 | `pdf-info` (FastAPI) | POST | Extracts file metadata and returns fileId |
-| `/api/utils/files/${fileId}/selected-pages` | POST | Submits selected pages for processing |
+| `/api/utils/get-page-image` (FastAPI) | POST | Fetches rendered page image as base64 |
+| `/api/utils/files/${fileId}/selected-pages` (FastAPI) | POST | Persists selected pages to backend |
 
 ## Error Handling
 
@@ -168,6 +330,8 @@ Ensure proper error handling for:
 - Invalid file formats
 - API timeout or network errors
 - Empty page selection
+- Page validation errors (out of range, invalid format)
+- Page image loading failures
 </Callout>
 
 **Common Error Scenarios**:
@@ -178,28 +342,47 @@ if (!response.ok) {
   throw new Error('Failed to upload file');
 }
 
+// Page selection validation
+const validationError = validatePageSelection(selection, totalPages);
+if (validationError) {
+  toast.error(validationError);
+  return;
+}
+
 // Empty page selection
 if (selected_pages.length === 0) {
-  alert('Please select at least one page');
+  toast.error('Please select at least one page');
   return;
+}
+
+// Page image loading error
+try {
+  await fetchPageImage(page);
+  updatePageStatus(page, 'loaded');
+} catch (error) {
+  updatePageStatus(page, 'error');
+  console.error(`Failed to load page ${page}:`, error);
 }
 
 // API submission error
 try {
-  await fetch(`/api/utils/files/${pdfInfo.fileId}/selected-pages`, {
-    method: 'POST',
-    body: JSON.stringify({ pages: selected_pages })
+  await axios.post(`/api/utils/files/${pdfInfo.fileId}/selected-pages`, {
+    pages: selected_pages
   });
 } catch (error) {
-  console.error('Failed to submit pages:', error);
+  console.error('Failed to persist pages:', error);
 }
 ```
 
 ## Performance Optimizations
 
-1. **Local State Append**: Instead of refetching all files after upload, the new file is appended locally
-2. **Immediate Navigation**: User is redirected immediately after successful submission
-3. **Blob Handling**: File blob is stored temporarily for size calculation
+1. **First Page Priority**: Load the first page immediately for instant visual feedback
+2. **Concurrent Prefetching**: Load remaining pages with max 3 concurrent requests to balance speed and server load
+3. **Sequential Processing**: Pages loaded in numerical order for predictable behavior
+4. **Progress Tracking**: Real-time progress updates with `loadingProgress` state
+5. **Local State Append**: New file appended locally instead of refetching entire list
+6. **Page Loading Status**: Track individual page status (`pending`, `loading`, `loaded`, `error`)
+7. **Blob Caching**: File blob stored in memory for multiple page requests
 
 ## API Contract
 
@@ -224,12 +407,36 @@ file: <PDF Blob>
 }
 ```
 
+### FastAPI: `/api/utils/get-page-image`
+
+**Request**:
+```http
+POST /api/utils/get-page-image
+Content-Type: multipart/form-data
+Authorization: Bearer {token}
+
+file: <PDF Blob>
+page: 1
+file_id: "fileId"
+dpi: 275
+```
+
+**Response**:
+```json
+{
+  "image": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAA..."
+}
+```
+
+**Purpose**: Renders a specific PDF page as a base64-encoded PNG image at the specified DPI. Used during prefetching to load all selected pages before navigation.
+
 ### FastAPI: `/api/utils/files/${fileId}/selected-pages`
 
 **Request**:
 ```http
 POST /api/utils/files/{fileId}/selected-pages
 Content-Type: application/json
+Authorization: Bearer {token}
 
 {
   "pages": [1, 2, 5, 10]
@@ -240,9 +447,11 @@ Content-Type: application/json
 ```json
 {
   "success": true,
-  "message": "Pages submitted for processing"
+  "message": "Selected pages saved"
 }
 ```
+
+**Purpose**: Persists the selected page numbers for a file, enabling the backend to retrieve only the necessary pages when the user navigates to `/files/[fileId]`.
 
 ## Related Documentation
 
