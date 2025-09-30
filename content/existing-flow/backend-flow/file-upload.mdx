@@ -10,7 +10,7 @@ The file upload process extracts PDF metadata, creates database records, and ret
 
 ```mermaid
 graph TD
-    A[Frontend: POST /pdf-info] --> B[Verify JWT Token]
+    A[Frontend: POST /pdf-info] --> B[Verify token using laravel system]
     B --> C[Read PDF File Contents]
     C --> D[PyPDF2: Create PdfReader]
     D --> E[Extract Total Pages]
@@ -70,7 +70,7 @@ file: <PDF Binary>
 
 ### Authentication
 
-Verify JWT token using FastAPI dependency injection.
+Verify token using laravel backend.
 
 ```python
 User_auth = Annotated[dict, Depends(verify_token)]

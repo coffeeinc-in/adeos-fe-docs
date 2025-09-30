@@ -18,7 +18,7 @@ graph TD
     D --> E
 
     E --> F[Initialize WebSocket Connection if not connected]
-    F --> G[Load Page Images & Annotations]
+    F --> G[Load Page Images & Annotations using api response `files/fileId`]
 
     G --> H{User Action}
 
@@ -56,6 +56,7 @@ graph TD
     style O fill:#dc2626,stroke:#b91c1c,stroke-width:2px,color:#fff
     style R fill:#16a34a,stroke:#15803d,stroke-width:2px,color:#fff
     style T fill:#16a34a,stroke:#15803d,stroke-width:2px,color:#fff
+    style G fill:#b91c1c,stroke:#b91c1c,stroke-width:2px,color:#fff
 ```
 
 ## Step-by-Step Flow
