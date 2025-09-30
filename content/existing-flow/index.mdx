@@ -1,6 +1,6 @@
 # ADEOS FE: Complete System Flow
 
-This section documents the complete ADEOS FE (Annotation Detection and Extraction Optimization System) architecture, covering both frontend and backend processing flows. ADEOS FE is a real-time annotation processing system built with Next.js 15 and FastAPI, utilizing WebSocket for live updates and Redis for queue management.
+This section documents the complete ADEOS FE (Annotation Detection and Extraction Optimization System) architecture, covering both frontend and backend processing flows. ADEOS FE is a real-time annotation processing system built with Next.js 15 and FastAPI, utilizing WebSocket for live updates.
 
 ## System Overview
 
@@ -97,7 +97,6 @@ graph TD
 - **Framework**: FastAPI (Python 3.11+) with WebSocket support
 - **Database**: MongoDB
 - **Storage**: Azure Blob Storage
-- **Queue**: Redis
 - **AI Models**: GPT-4.1-nano, Custom extractors
 
 ## Complete User Flow
@@ -120,10 +119,10 @@ User is redirected to `/files/[fileId]` where the file-specific processing inter
 Frontend establishes a WebSocket connection with the FastAPI backend for real-time updates.
 
 ### Batch Processing
-Frontend submits annotation requests via `/api/process/process-annotation-ws`. Backend creates a batch job and pushes tasks to Redis queue.
+Frontend submits annotation requests via `/api/process/process-annotation-ws`. Backend creates a batch job and processes annotations using background tasks.
 
-### Worker Processing
-Extraction workers (text, table, diagram) process annotations concurrently using AI models.
+### Background Processing
+Background tasks process annotations (text, table, diagram) concurrently using AI models.
 
 ### Real-time Updates
 As each annotation completes, the backend sends WebSocket events (`batch_item_completed`) to the frontend, which updates the UI in real-time.
@@ -147,9 +146,8 @@ When all annotations are processed, the backend sends a `batch_job_completed` ev
 - **Error Handling**: Graceful fallbacks when WebSocket is unavailable
 
 ### Scalability
-- **Redis Queue**: Distributed task management
+- **Background Tasks**: Concurrent annotation processing
 - **Semaphores**: Rate limiting for external AI APIs
-- **Worker Pools**: Horizontal scaling of extraction workers
 
 ## Documentation Sections
 
@@ -213,7 +211,6 @@ NEXT_PUBLIC_WS_URL=ws://localhost:8000
 ```bash
 MONGODB_URI=mongodb://localhost:27017/adeos
 AZURE_STORAGE_CONNECTION_STRING=your_azure_connection_string
-REDIS_URL=redis://localhost:6379
 JWT_SECRET_KEY=your_secret_key
 ```
 
@@ -221,4 +218,3 @@ JWT_SECRET_KEY=your_secret_key
 
 - [Sprint 02 Documentation](/sprint-02) - Latest features and improvements
 - [WebSocket Architecture](/sprint-02/websocket-v2) - Detailed WebSocket implementation
-- [Redis Integration](/sprint-02/redis) - Queue management and worker patterns
