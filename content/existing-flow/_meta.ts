@@ -1,6 +1,5 @@
 export default {
   index: 'Overview',
-  'file-selection': 'File Selection Process',
-  'file-processing': 'File Processing & Annotations',
-  "backend-processing": 'Backend Processing ( FastAPI )',
+  'frontend-flow': 'Frontend Flow (Next.js)',
+  'backend-flow': 'Backend Flow (FastAPI)',
 }

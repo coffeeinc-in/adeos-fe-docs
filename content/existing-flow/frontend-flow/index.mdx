@@ -1,0 +1,27 @@
+# Existing Flow Overview
+
+This section documents the current file processing flow in ADEOS FE, covering the complete user journey from file upload to annotation processing.
+
+## Documentation
+
+- **[File Selection Process](/existing-flow/file-selection)** - File upload and page selection workflow
+- **[File Processing & Annotations](/existing-flow/file-processing)** - Annotation creation, processing, and real-time updates
+
+## Quick Summary
+
+The existing flow consists of two main stages:
+
+1. **File Upload & Page Selection** (`/extract` page)
+   - User uploads a PDF file
+   - System retrieves file metadata via FastAPI
+   - User selects specific pages for processing
+   - Selected pages are submitted for annotation processing
+
+2. **File Processing & Navigation** (`/files/[fileId]` page)
+   - File metadata is appended to local state
+   - User is redirected to the file-specific processing page
+   - Annotation extraction begins
+
+<Callout type="info">
+The current implementation optimizes performance by appending file metadata to the local state instead of refetching the entire files list from the API.
+</Callout>

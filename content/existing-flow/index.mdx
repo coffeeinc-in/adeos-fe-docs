@@ -1,27 +1,224 @@
-# Existing Flow Overview
+# ADEOS FE: Complete System Flow
 
-This section documents the current file processing flow in ADEOS FE, covering the complete user journey from file upload to annotation processing.
+This section documents the complete ADEOS FE (Annotation Detection and Extraction Optimization System) architecture, covering both frontend and backend processing flows. ADEOS FE is a real-time annotation processing system built with Next.js 15 and FastAPI, utilizing WebSocket for live updates and Redis for queue management.
 
-## Documentation
+## System Overview
 
-- **[File Selection Process](/existing-flow/file-selection)** - File upload and page selection workflow
-- **[File Processing & Annotations](/existing-flow/file-processing)** - Annotation creation, processing, and real-time updates
+ADEOS FE consists of two main components that work together to provide a seamless file processing experience:
 
-## Quick Summary
+### [Frontend Flow](/existing-flow/frontend-flow)
+Next.js 15 application handling file uploads, page selection, and real-time annotation visualization.
 
-The existing flow consists of two main stages:
+### [Backend Flow](/existing-flow/backend-flow)
+FastAPI backend managing PDF processing, AI-powered extraction, and WebSocket communication.
 
-1. **File Upload & Page Selection** (`/extract` page)
-   - User uploads a PDF file
-   - System retrieves file metadata via FastAPI
-   - User selects specific pages for processing
-   - Selected pages are submitted for annotation processing
+## Architecture Diagram
 
-2. **File Processing & Navigation** (`/files/[fileId]` page)
-   - File metadata is appended to local state
-   - User is redirected to the file-specific processing page
-   - Annotation extraction begins
+```mermaid
+graph TD
+    A[User: Upload PDF] --> B[Frontend: /extract Page]
+    B --> C[POST /api/files/pdf-info]
+    C --> D[FastAPI: Extract Metadata]
+    D --> E[Store File in MongoDB]
+    D --> F[Upload PDF to Azure Blob]
 
-<Callout type="info">
-The current implementation optimizes performance by appending file metadata to the local state instead of refetching the entire files list from the API.
-</Callout>
+    E --> G[Return fileId & file details]
+    G --> B
+
+    B --> H[User: Select Pages]
+    H --> I[POST /api/utils/get-page-image]
+    I --> J[FastAPI: Convert PDF Page to Image]
+    J --> K[Return base64 Image]
+    K --> B
+
+    B --> L[POST /api/utils/files/fileId/selected-pages]
+    L --> M[Store Selected Pages]
+    M --> N[Frontend: Navigate to /files/fileId]
+
+    N --> O[Frontend: Establish WebSocket]
+    O --> P[FastAPI: WebSocket Connection]
+
+    N --> Q[User: Create Annotations]
+    Q --> R[User: Click Process]
+    R --> S[POST /api/process/process-annotation-ws]
+
+    S --> T[FastAPI: Validate & Check Credits]
+    T --> U[Create Batch Job Document]
+    U --> V[Background Task: Process Each Annotation]
+
+    V --> W{Annotation Type}
+    W -->|Text| X1[GPT-4.1-nano Extraction]
+    W -->|Table| X2[Table Extractor]
+    W -->|Diagram| X3[Diagram Analyzer]
+
+    X1 --> Y[Upload Processed Image to Azure]
+    X2 --> Y
+    X3 --> Y
+
+    Y --> Z[Store Result in MongoDB]
+    Z --> AA[Deduct Credits]
+    AA --> AB[WebSocket: batch_item_completed]
+    AB --> N
+
+    AB --> AC{More Annotations?}
+    AC -->|Yes| V
+    AC -->|No| AD[WebSocket: batch_job_completed]
+    AD --> N
+
+    N --> AE[Display Extracted Content]
+
+    style B fill:#2563eb,stroke:#1e40af,stroke-width:2px,color:#fff
+    style D fill:#f59e0b,stroke:#d97706,stroke-width:2px,color:#fff
+    style J fill:#f59e0b,stroke:#d97706,stroke-width:2px,color:#fff
+    style T fill:#f59e0b,stroke:#d97706,stroke-width:2px,color:#fff
+    style C fill:#dc2626,stroke:#b91c1c,stroke-width:2px,color:#fff
+    style I fill:#dc2626,stroke:#b91c1c,stroke-width:2px,color:#fff
+    style S fill:#dc2626,stroke:#b91c1c,stroke-width:2px,color:#fff
+    style X1 fill:#8b5cf6,stroke:#7c3aed,stroke-width:2px,color:#fff
+    style X2 fill:#8b5cf6,stroke:#7c3aed,stroke-width:2px,color:#fff
+    style X3 fill:#8b5cf6,stroke:#7c3aed,stroke-width:2px,color:#fff
+    style AB fill:#16a34a,stroke:#15803d,stroke-width:2px,color:#fff
+    style AD fill:#16a34a,stroke:#15803d,stroke-width:2px,color:#fff
+    style E fill:#10b981,stroke:#059669,stroke-width:2px,color:#fff
+    style F fill:#06b6d4,stroke:#0891b2,stroke-width:2px,color:#fff
+    style Z fill:#10b981,stroke:#059669,stroke-width:2px,color:#fff
+```
+
+## Technology Stack
+
+### Frontend
+- **Framework**: Next.js 15 with App Router
+- **Language**: TypeScript
+- **State Management**: React Context API
+- **Real-time**: WebSocket client
+- **UI**: Tailwind CSS, shadcn/ui
+
+### Backend
+- **Framework**: FastAPI (Python 3.11+) with WebSocket support
+- **Database**: MongoDB
+- **Storage**: Azure Blob Storage
+- **Queue**: Redis
+- **AI Models**: GPT-4.1-nano, Custom extractors
+
+## Complete User Flow
+
+<Steps>
+
+### File Upload
+User uploads a PDF file via the `/extract` page. The frontend sends the file to the FastAPI backend.
+
+### Metadata Extraction
+Backend extracts PDF metadata (total pages, file size) and stores the file record in MongoDB with an Azure Blob Storage URL.
+
+### Page Selection
+User selects specific pages for annotation processing. Selected pages are submitted to the backend.
+
+### Navigation to Processing
+User is redirected to `/files/[fileId]` where the file-specific processing interface loads.
+
+### WebSocket Connection
+Frontend establishes a WebSocket connection with the FastAPI backend for real-time updates.
+
+### Batch Processing
+Frontend submits annotation requests via `/api/process/process-annotation-ws`. Backend creates a batch job and pushes tasks to Redis queue.
+
+### Worker Processing
+Extraction workers (text, table, diagram) process annotations concurrently using AI models.
+
+### Real-time Updates
+As each annotation completes, the backend sends WebSocket events (`batch_item_completed`) to the frontend, which updates the UI in real-time.
+
+### Completion
+When all annotations are processed, the backend sends a `batch_job_completed` event. Results are stored in MongoDB and displayed to the user.
+
+</Steps>
+
+## Key Features
+
+### Performance Optimizations
+- **Concurrent Processing**: Up to 5 simultaneous annotation extractions
+- **Background Tasks**: Non-blocking Azure Blob uploads
+- **Local State Management**: Reduced API calls by caching file metadata
+- **Page-Level Processing**: Only selected pages are processed
+
+### Real-time Communication
+- **WebSocket Events**: Instant progress updates
+- **Batch Status Tracking**: Monitor individual annotation progress
+- **Error Handling**: Graceful fallbacks when WebSocket is unavailable
+
+### Scalability
+- **Redis Queue**: Distributed task management
+- **Semaphores**: Rate limiting for external AI APIs
+- **Worker Pools**: Horizontal scaling of extraction workers
+
+## Documentation Sections
+
+### Frontend Flow
+Covers the Next.js 15 application, including:
+- File selection and page preview
+- Local state management
+- WebSocket context implementation
+- Real-time UI updates
+
+**[Explore Frontend Flow →](/existing-flow/frontend-flow)**
+
+### Backend Flow
+Covers the FastAPI backend, including:
+- File upload and metadata extraction
+- PDF page-to-image conversion
+- Batch processing with WebSocket
+- AI-powered extraction workers
+
+**[Explore Backend Flow →](/existing-flow/backend-flow)**
+
+## Quick Start
+
+### Frontend Development
+```bash
+# Navigate to frontend directory
+cd frontend/
+
+# Install dependencies
+npm install
+
+# Start development server
+npm run dev
+```
+
+### Backend Development
+```bash
+# Navigate to backend directory
+cd backend/
+
+# Create virtual environment
+python -m venv venv
+source venv/bin/activate
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Start FastAPI server (includes WebSocket support)
+uvicorn main:app --reload
+```
+
+## Environment Variables
+
+### Frontend
+```bash
+NEXT_PUBLIC_API_URL=http://localhost:8000
+NEXT_PUBLIC_WS_URL=ws://localhost:8000
+```
+
+### Backend
+```bash
+MONGODB_URI=mongodb://localhost:27017/adeos
+AZURE_STORAGE_CONNECTION_STRING=your_azure_connection_string
+REDIS_URL=redis://localhost:6379
+JWT_SECRET_KEY=your_secret_key
+```
+
+## Related Resources
+
+- [Sprint 02 Documentation](/sprint-02) - Latest features and improvements
+- [WebSocket Architecture](/sprint-02/websocket-v2) - Detailed WebSocket implementation
+- [Redis Integration](/sprint-02/redis) - Queue management and worker patterns
