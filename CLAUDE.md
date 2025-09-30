@@ -91,7 +91,8 @@ Documentation is organized in `content/` directory with `_meta.ts` files definin
 Current sections:
 - **Demo v1**: File handling, prefill data, analytics/telemetry
 - **Sprint 02**: WebSocket architecture, Python backend, Redis integration, extraction workers, UI optimizations, deployment configs
-- **Existing Flow**: Current file processing flow from upload to annotation extraction
+- **Existing Flow (ADEOS FE)**: Frontend file processing flow from upload to annotation extraction
+- **Backend Processing (FastAPI)**: Backend API documentation covering file upload, page image generation, and batch processing with WebSocket
 
 ## Path Aliases
 
@@ -146,6 +147,106 @@ Reference: `content/existing-flow/file-selection.mdx` as the standard template f
   ```
   style NodeName fill:#2563eb,stroke:#1e40af,stroke-width:2px,color:#fff
   ```
+
+### Backend Documentation Standards
+
+Reference: `content/backend-processing/batch-processing.mdx` as the standard template for backend API documentation.
+
+**Backend Structure Pattern**:
+1. **Title and Overview**: Brief description of the backend process/API
+2. **Process Overview**: High-level summary of what the backend does
+3. **Complete Flow Diagram**: Use Mermaid `graph TD` (flow diagrams) for backend processes
+   - **IMPORTANT**: Always use flow diagrams (`graph TD`), NOT sequence diagrams
+   - Include validation, processing, storage, and response steps
+   - Use the same dark-mode-friendly color palette
+   - Show decision points (success/error paths)
+   - Avoid special characters (curly braces, colons, commas) in node labels
+4. **API Endpoint**: Document HTTP method, route, headers, parameters
+   - Include full request body examples (JSON/multipart)
+   - Include full response examples
+   - Document query parameters and headers
+5. **Implementation Flow**: Use `<Steps>` component for backend logic
+   - Authentication/validation
+   - Database operations
+   - External service calls (Azure, AI models)
+   - Background tasks
+   - Response formatting
+6. **Database Schema**: Show MongoDB document structure with field types
+7. **Background Tasks**: Document async operations with code examples
+8. **Error Handling**: Use `<Callout type="warning">` with error scenarios
+   - HTTP status codes
+   - Error response formats
+   - Recovery strategies
+9. **Performance Metrics**: Tables showing timing, throughput, optimization
+10. **Code Reference**: Link to actual backend file paths with line numbers
+11. **Related Documentation**: Link to frontend docs and other backend pages
+
+**Backend API Documentation Format**:
+```markdown
+### POST /api/endpoint/path
+
+Brief description of what the endpoint does.
+
+**Headers**:
+\```http
+Authorization: Bearer {jwt_token}
+Content-Type: application/json
+\```
+
+**Query Parameters**:
+- `param_name` (required): Description
+
+**Request Body**:
+\```json
+{
+  "field": "value"
+}
+\```
+
+**Response**:
+\```json
+{
+  "result": "value"
+}
+\```
+
+**Response Time**: Expected timing information
+```
+
+**Database Schema Documentation**:
+```markdown
+### collection_name
+
+\```javascript
+{
+  _id: ObjectId("..."),
+  fieldName: "type",  // Description
+  nestedField: {
+    subField: value
+  },
+  createdAt: ISODate("...")
+}
+\```
+```
+
+**Python Code Examples**:
+- Include imports at the top
+- Show async/await patterns
+- Include error handling (try/except)
+- Add comments for complex logic
+- Reference actual backend file paths
+
+**Flow Diagram Best Practices**:
+- Always use `graph TD` (top-down flow diagrams) for backend processes
+- Label nodes clearly: `[Service: Action]` or `[Action Description]`
+- Use decision nodes `{}` for conditional logic (e.g., `{Check Credits?}`)
+- Show error paths with edge labels: `-->|Error| ErrorNode`
+- Apply consistent color coding:
+  - Blue: Entry points (API requests)
+  - Orange: Processing steps (transformations, validations)
+  - Red: External service calls (Azure, MongoDB, AI)
+  - Green: Success states (responses, completions)
+  - Red: Error states
 
 ## MDX Features
 
