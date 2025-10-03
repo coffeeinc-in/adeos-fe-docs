@@ -4,88 +4,99 @@ This document details the V2 backend flow for processing annotation extraction j
 
 ## Process Overview
 
-The backend receives annotation processing requests, creates batch jobs in MongoDB, queues extraction tasks to Redis/Celery, processes annotations using AI models, stores results in Azure Blob, and sends real-time updates via Pusher.
+The backend receives annotation processing requests, creates batch jobs in MongoDB, delegates processing to Celery workers (up to 8 parallel workers based on CPU count), tracks progress in Redis, processes annotations using AI models in parallel, stores results in Azure Blob, and sends real-time updates via Pusher. Celery automatically handles task queuing, parallel execution, and load distribution across workers.
 
 ## Complete Flow Diagram
 
 ```mermaid
 graph TD
-    A[Frontend: POST /process-annotation] --> B[Receive Payload: pages, ann_id, ann_type]
-    B --> C[Validate user_id and file_id]
-    C --> D[Create Job Document in MongoDB]
+    A[Frontend: POST /process-annotation] --> B[Validate Request]
+    B --> C[Create Batch Job in MongoDB]
+    C --> D[Initialize Redis Progress Tracker]
 
-    D --> E[Insert into jobprocess_collection]
-    E --> F[Get batch_id from inserted_id]
+    D --> E[Queue Celery Tasks]
+    E --> F[Celery: Auto-distribute to Workers]
 
-    F --> G[Queue Task to Redis]
-    G --> H[Redis: Store extraction_worker Task]
-    H --> I[Return batch_id to Frontend]
+    F --> G1[Worker 1: Process Annotation 1]
+    F --> G2[Worker 2: Process Annotation 2]
+    F --> G3[Worker 3-8: Process Others in Parallel]
 
-    I --> J[Frontend: Subscribe to Pusher]
+    C --> H[Return batch_id to Frontend]
+    H --> I[Frontend: Subscribe to Pusher Channel]
 
-    H --> K[Celery Worker: Poll Redis Queue]
-    K --> L[Pick extraction_worker Task]
-    L --> M[Fetch Batch Job from MongoDB]
+    G1 --> J1[Fetch Page Image from Azure]
+    G2 --> J2[Fetch Page Image from Azure]
+    G3 --> J3[Fetch Page Images from Azure]
 
-    M --> N[Loop: Process Each Annotation]
-    N --> O[Fetch Page Image from Azure Blob]
-    O --> P[Crop Image to BBox]
+    J1 --> K1[Crop to BBox]
+    J2 --> K2[Crop to BBox]
+    J3 --> K3[Crop to BBox]
 
-    P --> Q[Send Pusher: extraction_started]
-    Q --> R[Run Layout Detection on Cropped Image]
-    R --> S[Identify Chunks: text blocks, tables, diagrams]
+    K1 --> L1[Pusher: extraction_started]
+    K2 --> L2[Pusher: extraction_started]
+    K3 --> L3[Pusher: extraction_started]
 
-    S --> T[Send Pusher: layout_detected with chunk count]
-    T --> U[Loop: Process Each Chunk]
+    L1 --> M1[Run Layout Detection]
+    L2 --> M2[Run Layout Detection]
+    L3 --> M3[Run Layout Detection]
 
-    U --> V{Chunk Type?}
-    V -->|text| W[AI Model: Extract Text with GPT]
-    V -->|table| X[AI Model: Extract Table Structure]
-    V -->|diagram| Y[AI Model: Analyze Diagram]
+    M1 --> N1[Pusher: layout_detected]
+    M2 --> N2[Pusher: layout_detected]
+    M3 --> N3[Pusher: layout_detected]
 
-    W --> Z[Store Chunk Extracted Data]
-    X --> Z
-    Y --> Z
+    N1 --> O1[Process Chunks with AI Models]
+    N2 --> O2[Process Chunks with AI Models]
+    N3 --> O3[Process Chunks with AI Models]
 
-    Z --> AA[Send Pusher: chunk_completed with progress]
-    AA --> AB{More Chunks?}
-    AB -->|Yes| U
-    AB -->|No| AC[Combine All Chunk Data]
+    O1 --> P1[Pusher: chunk_completed per chunk]
+    O2 --> P2[Pusher: chunk_completed per chunk]
+    O3 --> P3[Pusher: chunk_completed per chunk]
 
-    AC --> AD[Save Final Extracted Data to MongoDB]
-    AD --> AE[Upload Processed Image to Azure Blob]
-    AE --> AF[Update MongoDB: Annotation Status = completed]
-    AF --> AG[Update Redis: Progress Cache]
-    AG --> AH[Send Pusher: batch_item_completed]
+    P1 --> Q1[Save to MongoDB + Azure Blob]
+    P2 --> Q2[Save to MongoDB + Azure Blob]
+    P3 --> Q3[Save to MongoDB + Azure Blob]
 
-    AH --> AI{More Annotations?}
-    AI -->|Yes| N
-    AI -->|No| AJ[Update MongoDB: Batch Status = completed]
+    Q1 --> R1[Update Redis Progress]
+    Q2 --> R2[Update Redis Progress]
+    Q3 --> R3[Update Redis Progress]
 
-    AJ --> AK[Send Pusher: batch_job_completed]
-    AK --> AL[Frontend: Fetch Final Data]
+    R1 --> S1[Pusher: batch_item_completed]
+    R2 --> S2[Pusher: batch_item_completed]
+    R3 --> S3[Pusher: batch_item_completed]
+
+    S1 --> T[Check All Annotations Complete]
+    S2 --> T
+    S3 --> T
+
+    T --> U[Update Batch Status: completed]
+    U --> V[Remove Batch from Redis]
+    V --> W[Pusher: batch_job_completed]
+    W --> X[Frontend: Fetch Final Results]
 
     style A fill:#2563eb,stroke:#1e40af,stroke-width:2px,color:#fff
-    style D fill:#f59e0b,stroke:#d97706,stroke-width:2px,color:#fff
-    style E fill:#dc2626,stroke:#b91c1c,stroke-width:2px,color:#fff
-    style G fill:#8b5cf6,stroke:#7c3aed,stroke-width:2px,color:#fff
-    style H fill:#dc2626,stroke:#b91c1c,stroke-width:2px,color:#fff
-    style K fill:#f59e0b,stroke:#d97706,stroke-width:2px,color:#fff
-    style O fill:#dc2626,stroke:#b91c1c,stroke-width:2px,color:#fff
-    style Q fill:#8b5cf6,stroke:#7c3aed,stroke-width:2px,color:#fff
-    style R fill:#f59e0b,stroke:#d97706,stroke-width:2px,color:#fff
-    style T fill:#8b5cf6,stroke:#7c3aed,stroke-width:2px,color:#fff
+    style C fill:#dc2626,stroke:#b91c1c,stroke-width:2px,color:#fff
+    style D fill:#dc2626,stroke:#b91c1c,stroke-width:2px,color:#fff
+    style E fill:#f59e0b,stroke:#d97706,stroke-width:2px,color:#fff
+    style F fill:#f59e0b,stroke:#d97706,stroke-width:2px,color:#fff
+    style G1 fill:#8b5cf6,stroke:#7c3aed,stroke-width:2px,color:#fff
+    style G2 fill:#8b5cf6,stroke:#7c3aed,stroke-width:2px,color:#fff
+    style G3 fill:#8b5cf6,stroke:#7c3aed,stroke-width:2px,color:#fff
+    style J1 fill:#dc2626,stroke:#b91c1c,stroke-width:2px,color:#fff
+    style J2 fill:#dc2626,stroke:#b91c1c,stroke-width:2px,color:#fff
+    style J3 fill:#dc2626,stroke:#b91c1c,stroke-width:2px,color:#fff
+    style O1 fill:#8b5cf6,stroke:#7c3aed,stroke-width:2px,color:#fff
+    style O2 fill:#8b5cf6,stroke:#7c3aed,stroke-width:2px,color:#fff
+    style O3 fill:#8b5cf6,stroke:#7c3aed,stroke-width:2px,color:#fff
+    style Q1 fill:#dc2626,stroke:#b91c1c,stroke-width:2px,color:#fff
+    style Q2 fill:#dc2626,stroke:#b91c1c,stroke-width:2px,color:#fff
+    style Q3 fill:#dc2626,stroke:#b91c1c,stroke-width:2px,color:#fff
+    style R1 fill:#dc2626,stroke:#b91c1c,stroke-width:2px,color:#fff
+    style R2 fill:#dc2626,stroke:#b91c1c,stroke-width:2px,color:#fff
+    style R3 fill:#dc2626,stroke:#b91c1c,stroke-width:2px,color:#fff
+    style U fill:#dc2626,stroke:#b91c1c,stroke-width:2px,color:#fff
+    style V fill:#dc2626,stroke:#b91c1c,stroke-width:2px,color:#fff
     style W fill:#8b5cf6,stroke:#7c3aed,stroke-width:2px,color:#fff
-    style X fill:#8b5cf6,stroke:#7c3aed,stroke-width:2px,color:#fff
-    style Y fill:#8b5cf6,stroke:#7c3aed,stroke-width:2px,color:#fff
-    style AA fill:#8b5cf6,stroke:#7c3aed,stroke-width:2px,color:#fff
-    style AD fill:#dc2626,stroke:#b91c1c,stroke-width:2px,color:#fff
-    style AE fill:#dc2626,stroke:#b91c1c,stroke-width:2px,color:#fff
-    style AF fill:#dc2626,stroke:#b91c1c,stroke-width:2px,color:#fff
-    style AG fill:#dc2626,stroke:#b91c1c,stroke-width:2px,color:#fff
-    style AH fill:#8b5cf6,stroke:#7c3aed,stroke-width:2px,color:#fff
-    style AK fill:#8b5cf6,stroke:#7c3aed,stroke-width:2px,color:#fff
-    style AL fill:#16a34a,stroke:#15803d,stroke-width:2px,color:#fff
+    style X fill:#16a34a,stroke:#15803d,stroke-width:2px,color:#fff
 ```
 
 ## API Endpoint
@@ -144,6 +155,21 @@ Content-Type: application/json
 
 **Response Time**: Less than 100ms (async task initiation)
 
+## Architecture Highlights
+
+import { Callout } from 'nextra/components'
+
+<Callout type="info">
+**Key Architecture Benefits**:
+
+1. **Parallel Processing**: Up to 8 annotations processed simultaneously using Celery workers
+2. **Auto-scaling**: Celery automatically distributes tasks across available workers
+3. **Thread-safe Progress Tracking**: Redis atomic operations (`HINCRBY`) prevent race conditions
+4. **Automatic Cleanup**: Batch removed from Redis when all annotations complete
+5. **Real-time Updates**: Pusher notifications keep frontend synchronized
+6. **No Manual Coordination**: Celery handles queuing, distribution, and load balancing
+</Callout>
+
 ## Implementation Flow
 
 <Steps>
@@ -190,10 +216,11 @@ async def initiate_processing(
 
 ### Create Batch Job in MongoDB
 
-Create a job document in jobprocess_collection.
+Create a job document in jobprocess_collection and queue tasks to Celery.
 
 ```python
 from datetime import datetime
+from celery import group
 
 async def create_batch_job(request: ProcessRequest) -> str:
     # Flatten annotations from all pages
@@ -215,26 +242,42 @@ async def create_batch_job(request: ProcessRequest) -> str:
         "user_id": request.user_id,
         "status": "queued",
         "createdAt": datetime.utcnow(),
-        "annotations": all_annotations
+        "annotations": all_annotations,
+        "total": len(all_annotations),
+        "completed": 0
     }
 
     # Insert into MongoDB
     result = await jobprocess_collection.insert_one(job_doc)
     batch_id = str(result.inserted_id)
 
-    # Queue Celery task
-    extraction_worker.delay(batch_id)
+    # Initialize Redis progress tracker
+    progress_key = f"batch:progress:{batch_id}"
+    redis_client.hset(progress_key, mapping={
+        "completed": 0,
+        "total": len(all_annotations),
+        "status": "queued"
+    })
+    redis_client.expire(progress_key, 7200)  # 2 hours TTL
+
+    # Queue Celery tasks (one task per annotation)
+    # Celery will automatically distribute across available workers
+    tasks = group([
+        process_annotation.s(batch_id, str(ann["ann_id"]))
+        for ann in all_annotations
+    ])
+    tasks.apply_async()
 
     return batch_id
 ```
 
 <Callout type="info">
-**Redis Queue Flow**: `extraction_worker.delay()` serializes the task and pushes it to Redis using `LPUSH celery`. The task waits in the queue until a Celery worker picks it up with `BRPOP`.
+**Celery Parallel Processing**: Using `group()`, all annotation tasks are queued simultaneously. Celery automatically distributes them across available workers (up to 8 workers based on CPU count). Each worker processes annotations independently and in parallel.
 </Callout>
 
 ### Background Extraction Worker
 
-Celery task that processes each annotation.
+Celery task that processes a single annotation. Multiple workers process different annotations in parallel.
 
 ```python
 from celery import Celery
@@ -244,183 +287,221 @@ from azure.storage.blob import BlobServiceClient
 import openai
 
 celery_app = Celery('tasks', broker='redis://localhost:6379/0')
+
+# Configure Celery to use up to 8 workers (based on CPU count)
+celery_app.conf.update(
+    worker_concurrency=8,  # Number of parallel workers
+    task_acks_late=True,
+    worker_prefetch_multiplier=1
+)
+
 pusher_client = Pusher(...)
 redis_client = redis.Redis(host='localhost', port=6379, db=0)
 blob_service_client = BlobServiceClient(...)
 
 @celery_app.task
-def extraction_worker(batch_id: str):
+def process_annotation(batch_id: str, ann_id: str):
+    """
+    Process a single annotation.
+    This task runs in parallel across multiple Celery workers.
+    """
     # Fetch batch job
     job_doc = jobprocess_collection.find_one({"_id": ObjectId(batch_id)})
     user_id = job_doc["user_id"]
     file_id = job_doc["file_id"]
-    annotations = job_doc["annotations"]
 
-    # Update status to processing
-    jobprocess_collection.update_one(
-        {"_id": ObjectId(batch_id)},
-        {"$set": {"status": "processing"}}
-    )
+    # Find the specific annotation to process
+    annotation = None
+    for ann in job_doc["annotations"]:
+        if str(ann["ann_id"]) == ann_id:
+            annotation = ann
+            break
 
-    # Initialize progress in Redis
-    progress_key = f"batch:progress:{batch_id}"
-    redis_client.hset(progress_key, mapping={
-        "completed": 0,
-        "total": len(annotations),
-        "status": "processing"
-    })
-    redis_client.expire(progress_key, 7200)  # 2 hours
+    if not annotation:
+        raise Exception(f"Annotation {ann_id} not found in batch {batch_id}")
 
-    # Process each annotation
-    for idx, ann in enumerate(annotations):
-        ann_id = str(ann["ann_id"])
-        ann_type = ann["type"]
-        page_no = ann["page_no"]
-        bbox = ann["bbox"]
+    ann_type = annotation["type"]
+    page_no = annotation["page_no"]
+    bbox = annotation["bbox"]
 
-        try:
-            # Update status to processing
-            jobprocess_collection.update_one(
-                {"_id": ObjectId(batch_id), "annotations.ann_id": ObjectId(ann_id)},
-                {"$set": {"annotations.$.status": "processing"}}
-            )
+    try:
+        # Update status to processing
+        jobprocess_collection.update_one(
+            {"_id": ObjectId(batch_id), "annotations.ann_id": ObjectId(ann_id)},
+            {"$set": {"annotations.$.status": "processing"}}
+        )
 
-            # Fetch page image from Azure Blob
-            page_doc = pages_collection.find_one({
-                "file_id": ObjectId(file_id),
-                "page_no": page_no
+        # Update batch status to processing (if first annotation)
+        jobprocess_collection.update_one(
+            {"_id": ObjectId(batch_id), "status": "queued"},
+            {"$set": {"status": "processing"}}
+        )
+
+        # Fetch page image from Azure Blob
+        page_doc = pages_collection.find_one({
+            "file_id": ObjectId(file_id),
+            "page_no": page_no
+        })
+        page_image_url = page_doc["url"]
+
+        # Download image
+        blob_client = blob_service_client.get_blob_client_from_url(page_image_url)
+        image_bytes = blob_client.download_blob().readall()
+
+        # Crop to bounding box
+        cropped_image = crop_image(image_bytes, bbox)
+
+        # Send extraction started notification
+        pusher_client.trigger(user_id, 'extraction_started', {
+            'batch_id': batch_id,
+            'ann_id': ann_id
+        })
+
+        # Run layout detection
+        layout_chunks = run_layout_detection(cropped_image)
+        # Returns: [{"type": "text", "bbox": [...], "content": bytes}, ...]
+
+        # Send layout detected notification
+        pusher_client.trigger(user_id, 'layout_detected', {
+            'batch_id': batch_id,
+            'ann_id': ann_id,
+            'chunk_count': len(layout_chunks)
+        })
+
+        # Process each chunk
+        chunk_results = []
+        for chunk_idx, chunk in enumerate(layout_chunks):
+            chunk_type = chunk["type"]
+            chunk_image = chunk["content"]
+
+            # Extract based on chunk type
+            if chunk_type == "text":
+                chunk_data = extract_text_with_gpt(chunk_image)
+            elif chunk_type == "table":
+                chunk_data = extract_table(chunk_image)
+            elif chunk_type == "diagram":
+                chunk_data = analyze_diagram(chunk_image)
+
+            chunk_results.append({
+                "chunk_index": chunk_idx,
+                "type": chunk_type,
+                "data": chunk_data
             })
-            page_image_url = page_doc["url"]
 
-            # Download image
-            blob_client = blob_service_client.get_blob_client_from_url(page_image_url)
-            image_bytes = blob_client.download_blob().readall()
-
-            # Crop to bounding box
-            cropped_image = crop_image(image_bytes, bbox)
-
-            # Send extraction started notification
-            pusher_client.trigger(user_id, 'extraction_started', {
-                'batch_id': batch_id,
-                'ann_id': ann_id
-            })
-
-            # Run layout detection
-            layout_chunks = run_layout_detection(cropped_image)
-            # Returns: [{"type": "text", "bbox": [...], "content": bytes}, ...]
-
-            # Send layout detected notification
-            pusher_client.trigger(user_id, 'layout_detected', {
-                'batch_id': batch_id,
-                'ann_id': ann_id,
-                'chunk_count': len(layout_chunks)
-            })
-
-            # Process each chunk
-            chunk_results = []
-            for chunk_idx, chunk in enumerate(layout_chunks):
-                chunk_type = chunk["type"]
-                chunk_image = chunk["content"]
-
-                # Extract based on chunk type
-                if chunk_type == "text":
-                    chunk_data = extract_text_with_gpt(chunk_image)
-                elif chunk_type == "table":
-                    chunk_data = extract_table(chunk_image)
-                elif chunk_type == "diagram":
-                    chunk_data = analyze_diagram(chunk_image)
-
-                chunk_results.append({
-                    "chunk_index": chunk_idx,
-                    "type": chunk_type,
-                    "data": chunk_data
-                })
-
-                # Send chunk completed notification
-                pusher_client.trigger(user_id, 'chunk_completed', {
-                    'batch_id': batch_id,
-                    'ann_id': ann_id,
-                    'chunk_index': chunk_idx,
-                    'total_chunks': len(layout_chunks),
-                    'progress': round(((chunk_idx + 1) / len(layout_chunks)) * 100)
-                })
-
-            # Combine all chunk data
-            extracted_data = combine_chunk_data(chunk_results, ann_type)
-
-            # Upload processed image to blob
-            processed_blob_name = f"processed/{batch_id}/{ann_id}.png"
-            processed_blob_client = blob_service_client.get_blob_client(
-                container="annotations",
-                blob=processed_blob_name
-            )
-            processed_blob_client.upload_blob(cropped_image, overwrite=True)
-            processed_url = processed_blob_client.url
-
-            # Add URL to extracted data
-            extracted_data["processed_image_url"] = processed_url
-
-            # Update MongoDB: jobprocess_collection
-            jobprocess_collection.update_one(
-                {"_id": ObjectId(batch_id), "annotations.ann_id": ObjectId(ann_id)},
-                {"$set": {
-                    "annotations.$.status": "completed",
-                    "annotations.$.data": extracted_data
-                }}
-            )
-
-            # Update MongoDB: annotations_collection
-            annotations_collection.update_one(
-                {"_id": ObjectId(ann_id)},
-                {"$set": {
-                    "status": "completed",
-                    "data": extracted_data,
-                    "updated_at": datetime.utcnow()
-                }}
-            )
-
-            # Update Redis progress
-            redis_client.hset(progress_key, "completed", idx + 1)
-
-            # Send Pusher notification
-            pusher_client.trigger(user_id, 'batch_item_completed', {
+            # Send chunk completed notification
+            pusher_client.trigger(user_id, 'chunk_completed', {
                 'batch_id': batch_id,
                 'ann_id': ann_id,
-                'status': 'completed'
+                'chunk_index': chunk_idx,
+                'total_chunks': len(layout_chunks),
+                'progress': round(((chunk_idx + 1) / len(layout_chunks)) * 100)
             })
 
-        except Exception as e:
-            # Mark as failed
+        # Combine all chunk data
+        extracted_data = combine_chunk_data(chunk_results, ann_type)
+
+        # Upload processed image to blob
+        processed_blob_name = f"processed/{batch_id}/{ann_id}.png"
+        processed_blob_client = blob_service_client.get_blob_client(
+            container="annotations",
+            blob=processed_blob_name
+        )
+        processed_blob_client.upload_blob(cropped_image, overwrite=True)
+        processed_url = processed_blob_client.url
+
+        # Add URL to extracted data
+        extracted_data["processed_image_url"] = processed_url
+
+        # Update MongoDB: jobprocess_collection
+        jobprocess_collection.update_one(
+            {"_id": ObjectId(batch_id), "annotations.ann_id": ObjectId(ann_id)},
+            {"$set": {
+                "annotations.$.status": "completed",
+                "annotations.$.data": extracted_data
+            }}
+        )
+
+        # Update MongoDB: annotations_collection
+        annotations_collection.update_one(
+            {"_id": ObjectId(ann_id)},
+            {"$set": {
+                "status": "completed",
+                "data": extracted_data,
+                "updated_at": datetime.utcnow()
+            }}
+        )
+
+        # Atomically increment completed count in Redis
+        progress_key = f"batch:progress:{batch_id}"
+        completed_count = redis_client.hincrby(progress_key, "completed", 1)
+
+        # Send Pusher notification
+        pusher_client.trigger(user_id, 'batch_item_completed', {
+            'batch_id': batch_id,
+            'ann_id': ann_id,
+            'status': 'completed'
+        })
+
+        # Check if all annotations are completed
+        total_count = int(redis_client.hget(progress_key, "total"))
+        if completed_count >= total_count:
+            # All annotations completed - mark batch as done
             jobprocess_collection.update_one(
-                {"_id": ObjectId(batch_id), "annotations.ann_id": ObjectId(ann_id)},
-                {"$set": {
-                    "annotations.$.status": "failed",
-                    "annotations.$.error": str(e)
-                }}
+                {"_id": ObjectId(batch_id)},
+                {"$set": {"status": "completed"}}
             )
 
-            pusher_client.trigger(user_id, 'batch_item_failed', {
+            # Remove batch from Redis
+            redis_client.delete(progress_key)
+
+            # Send batch completion notification
+            pusher_client.trigger(user_id, 'batch_job_completed', {
                 'batch_id': batch_id,
-                'ann_id': ann_id,
-                'error': str(e)
+                'status': 'completed',
+                'total_processed': total_count
             })
 
-    # Mark batch as completed
-    jobprocess_collection.update_one(
-        {"_id": ObjectId(batch_id)},
-        {"$set": {"status": "completed"}}
-    )
+    except Exception as e:
+        # Mark annotation as failed
+        jobprocess_collection.update_one(
+            {"_id": ObjectId(batch_id), "annotations.ann_id": ObjectId(ann_id)},
+            {"$set": {
+                "annotations.$.status": "failed",
+                "annotations.$.error": str(e)
+            }}
+        )
 
-    # Update Redis
-    redis_client.hset(progress_key, "status", "completed")
+        # Still increment completed count (failed counts as completed)
+        progress_key = f"batch:progress:{batch_id}"
+        completed_count = redis_client.hincrby(progress_key, "completed", 1)
 
-    # Send batch completion notification
-    pusher_client.trigger(user_id, 'batch_job_completed', {
-        'batch_id': batch_id,
-        'status': 'completed',
-        'total_processed': len(annotations)
-    })
+        pusher_client.trigger(user_id, 'batch_item_failed', {
+            'batch_id': batch_id,
+            'ann_id': ann_id,
+            'error': str(e)
+        })
+
+        # Check if all annotations are processed (including failures)
+        total_count = int(redis_client.hget(progress_key, "total"))
+        if completed_count >= total_count:
+            jobprocess_collection.update_one(
+                {"_id": ObjectId(batch_id)},
+                {"$set": {"status": "completed"}}
+            )
+
+            # Remove batch from Redis
+            redis_client.delete(progress_key)
+
+            pusher_client.trigger(user_id, 'batch_job_completed', {
+                'batch_id': batch_id,
+                'status': 'completed',
+                'total_processed': total_count
+            })
 ```
+
+<Callout type="info">
+**Parallel Processing Architecture**: Each annotation is processed by a separate Celery task. With 8 workers, up to 8 annotations can be processed simultaneously. Workers use atomic Redis operations (`HINCRBY`) to safely track progress. When the last worker completes, it detects completion and removes the batch from Redis.
+</Callout>
 
 ### Layout Detection and Chunking
 
@@ -683,40 +764,83 @@ def extract_field(image_bytes: bytes) -> dict:
 }
 ```
 
-## Redis Integration
+## Celery Configuration
 
-### Task Queue
+### Worker Setup
+
+Celery is configured to run up to 8 parallel workers based on CPU count:
 
 ```python
-# Push task to queue
-extraction_worker.delay(batch_id)
+# celery_app.py
+from celery import Celery
 
-# Redis structure
-Key: celery
-Type: LIST
-Value: [
-  {
-    "task": "extraction_worker",
-    "id": "task-uuid-789",
-    "args": ["batch_123"],
-    "kwargs": {}
-  }
-]
+celery_app = Celery(
+    'adeos_tasks',
+    broker='redis://localhost:6379/0',
+    backend='redis://localhost:6379/0'
+)
+
+# Configure workers
+celery_app.conf.update(
+    worker_concurrency=8,              # Number of parallel worker processes
+    task_acks_late=True,                # Acknowledge tasks after completion
+    worker_prefetch_multiplier=1,       # Fetch one task at a time per worker
+    task_serializer='json',
+    accept_content=['json'],
+    result_serializer='json',
+    timezone='UTC',
+    enable_utc=True,
+)
 ```
+
+### Starting Workers
+
+```bash
+# Start Celery worker with 8 concurrent processes
+celery -A celery_app worker --loglevel=info --concurrency=8
+
+# In Docker
+docker-compose.yml:
+  worker:
+    command: celery -A celery_app worker --loglevel=info --concurrency=8
+    deploy:
+      replicas: 1
+```
+
+<Callout type="info">
+**Auto-scaling**: Celery automatically distributes tasks across available workers. With 8 workers, 8 annotations can be processed simultaneously. Celery manages its own task queue internally using Redis as a message broker.
+</Callout>
+
+## Redis Integration
 
 ### Progress Tracking
 
+Redis is used ONLY for tracking batch progress, not for task queuing (Celery manages its own queue).
+
 ```python
-# Store progress
+# Initialize progress tracker
 Key: batch:progress:batch_123
 Type: HASH
 Value: {
-  "completed": "2",
-  "total": "5",
+  "completed": "0",
+  "total": "8",
   "status": "processing"
 }
-TTL: 7200 seconds
+TTL: 7200 seconds  # Auto-expire after 2 hours
+
+# Atomically increment completed count
+redis_client.hincrby("batch:progress:batch_123", "completed", 1)
+
+# When all complete, delete from Redis
+redis_client.delete("batch:progress:batch_123")
 ```
+
+### Key Features
+
+- **Atomic Operations**: `HINCRBY` ensures thread-safe counter increments across parallel workers
+- **TTL**: Auto-expire prevents stale data from accumulating
+- **Cleanup**: Batch removed from Redis when all annotations complete
+- **Concurrent Access**: Multiple workers can safely update the same batch progress
 
 ## Pusher Events
 
@@ -855,25 +979,51 @@ except Exception as e:
 | Diagram Analysis | 6-10s per annotation |
 | Blob Upload | 500-1000ms per image |
 | Pusher Notification | Less than 100ms |
-| Concurrent Workers | 5 (configurable) |
+| Concurrent Workers | Up to 8 (based on CPU count) |
+| Parallel Processing | 8 annotations simultaneously |
+| Throughput | ~120-240 annotations/minute (with 8 workers) |
 
 ### Optimization Strategies
 
-**Concurrent Processing**:
-```python
-import asyncio
+**Celery Handles Parallelization**:
+Celery automatically manages parallel processing. Simply configure worker concurrency:
 
-async def process_annotations_concurrently(annotations):
-    tasks = [process_single_annotation(ann) for ann in annotations]
-    await asyncio.gather(*tasks)
+```python
+# No need for manual async/await - Celery handles it
+celery_app.conf.worker_concurrency = 8
+
+# Queue all tasks at once - Celery distributes automatically
+tasks = group([
+    process_annotation.s(batch_id, ann_id)
+    for ann_id in annotation_ids
+])
+tasks.apply_async()
 ```
 
-**Batch Blob Uploads**:
+**Redis Atomic Operations**:
+Use atomic operations to prevent race conditions with concurrent workers:
+
 ```python
-# Upload multiple images concurrently
-async def upload_blobs_batch(images: list):
-    tasks = [upload_to_blob(img) for img in images]
-    await asyncio.gather(*tasks)
+# Thread-safe increment
+completed = redis_client.hincrby(f"batch:progress:{batch_id}", "completed", 1)
+
+# Compare-and-set pattern
+pipeline = redis_client.pipeline()
+pipeline.watch(progress_key)
+current = pipeline.hget(progress_key, "completed")
+if int(current) + 1 == total:
+    pipeline.multi()
+    pipeline.delete(progress_key)
+    pipeline.execute()
+```
+
+**Batch Processing Configuration**:
+```bash
+# Adjust based on server capacity
+celery -A celery_app worker \
+  --concurrency=8 \           # Number of parallel workers
+  --prefetch-multiplier=1 \   # Fetch one task at a time
+  --max-tasks-per-child=100   # Restart worker after 100 tasks (memory management)
 ```
 
 ## Code References
