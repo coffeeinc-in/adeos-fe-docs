@@ -6,6 +6,16 @@ This document details the V2 backend flow for processing annotation extraction j
 
 The backend receives annotation processing requests, creates batch jobs in MongoDB, delegates processing to Celery workers (up to 8 parallel workers based on CPU count), tracks progress in Redis, processes annotations using AI models in parallel, stores results in Azure Blob, and sends real-time updates via Pusher. Celery automatically handles task queuing, parallel execution, and load distribution across workers.
 
+### How It Works
+
+1. **Request**: Frontend sends annotation processing request
+2. **Batch Creation**: Backend creates job document in MongoDB and initializes Redis progress tracker
+3. **Task Distribution**: All annotations queued to Celery simultaneously
+4. **Parallel Processing**: Celery automatically distributes tasks across 8 workers
+5. **Progress Tracking**: Each worker atomically updates Redis counter after completion
+6. **Completion Detection**: Last worker to finish detects all complete and removes batch from Redis
+7. **Real-time Updates**: Pusher events keep frontend synchronized throughout
+
 ## Complete Flow Diagram
 
 ```mermaid
@@ -171,6 +181,8 @@ import { Callout } from 'nextra/components'
 </Callout>
 
 ## Implementation Flow
+
+import { Steps } from 'nextra/components'
 
 <Steps>
 
@@ -1028,10 +1040,13 @@ celery -A celery_app worker \
 
 ## Code References
 
-**Process Annotation Endpoint**: `backend/api/routes/batch/process.py:100-140`
-**Extraction Worker**: `backend/workers/extraction_worker.py:30-200`
-**AI Extractors**: `backend/services/ai_extractors.py:10-150`
-**Blob Service**: `backend/services/azure_blob.py:20-80`
+- **Process Annotation Endpoint**: `backend/api/routes/batch/process.py:100-140`
+- **Celery App Configuration**: `backend/celery_app.py:1-50`
+- **Process Annotation Task**: `backend/tasks/process_annotation.py:30-250`
+- **Layout Detection**: `backend/services/layout_detection.py:10-100`
+- **AI Extractors**: `backend/services/ai_extractors.py:10-150`
+- **Blob Service**: `backend/services/azure_blob.py:20-80`
+- **Redis Client**: `backend/services/redis_client.py:1-30`
 
 ## Related Documentation
 
