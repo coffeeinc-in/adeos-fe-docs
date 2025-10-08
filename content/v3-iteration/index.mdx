@@ -1,0 +1,178 @@
+# V3 Iteration Overview
+
+V3 iteration introduces a modern, performant architecture leveraging Next.js best practices with SWR, Pusher real-time subscriptions, Zustand state management, and optimized middleware patterns for superior UX.
+
+## Architecture Stack
+
+```mermaid
+graph TD
+    A[Next.js 15 + App Router] --> B[SWR Data Fetching]
+    A --> C[Pusher Client userId channel]
+    A --> D[Zustand Store]
+
+    B --> E[FastAPI Backend]
+    E --> F[Celery + Redis]
+    F --> G[MongoDB]
+    F --> H[Pusher Server]
+
+    H --> C
+    C --> I[SWR Mutate]
+    I --> D
+
+    D --> J[UI Components]
+
+    style A fill:#2563eb,stroke:#1e40af,stroke-width:2px,color:#fff
+    style B fill:#06b6d4,stroke:#0891b2,stroke-width:2px,color:#fff
+    style C fill:#f59e0b,stroke:#d97706,stroke-width:2px,color:#fff
+    style D fill:#8b5cf6,stroke:#7c3aed,stroke-width:2px,color:#fff
+    style E fill:#dc2626,stroke:#b91c1c,stroke-width:2px,color:#fff
+    style F fill:#10b981,stroke:#059669,stroke-width:2px,color:#fff
+    style H fill:#f59e0b,stroke:#d97706,stroke-width:2px,color:#fff
+    style J fill:#2563eb,stroke:#1e40af,stroke-width:2px,color:#fff
+```
+
+## Technology Stack
+
+| Layer | Technology | Purpose |
+|-------|------------|---------|
+| **Frontend Framework** | Next.js 15 (App Router) | Server-side rendering, routing, API routes |
+| **Data Fetching** | SWR | Client-side data fetching, caching, revalidation |
+| **State Management** | Zustand + Lodash | Global state, file data handling, helpers |
+| **Real-time** | Pusher (userId channel) | WebSocket subscriptions, live updates |
+| **Backend API** | FastAPI + Python | REST endpoints, business logic |
+| **Task Queue** | Celery + Redis | Background jobs, async processing |
+| **Database** | MongoDB | Document storage |
+| **File Processing** | pdf.dist, docx, odf parsers | Client-side file parsing, thumbnail generation |
+
+## Key Architectural Decisions
+
+### 1. **SWR with Pusher Integration**
+- SWR handles all data fetching with automatic caching and revalidation
+- Pusher subscriptions on `userId` channel for real-time updates
+- Pusher events trigger SWR `mutate()` for instant UI updates
+- Optimistic updates with automatic rollback on failure
+
+### 2. **Client-side File Processing**
+- Frontend uses `pdf.dist`, `docx`, and `odf` libraries to parse files
+- Generate thumbnails client-side before upload
+- Page/range selection UI with visual previews
+- Only send file blob + selected pages to backend
+
+### 3. **Middleware Hook Pattern**
+- Custom hooks encapsulate SWR logic, Pusher subscriptions, and Zustand updates
+- UI components directly connect to middleware hooks
+- Separation of concerns: UI layer → Hook layer → API/State layer
+
+### 4. **File Page Dynamic Routing**
+- `/file/[fileId]` dynamic route
+- Prefetch data on navigation
+- Parallel API calls: `/get-batchids` (user-level) + `/get-file-data` (file-level)
+- Real-time batch progress updates via Pusher → SWR mutate
+
+## Core Flows
+
+The V3 iteration focuses on three primary user flows:
+
+### **[1. File Upload Flow →](/v3-iteration/file-upload-flow)**
+- Client-side file parsing and thumbnail generation
+- Page/range selection with visual preview
+- API call with file blob + selected pages
+- Navigation to `/file/[fileId]`
+
+### **[2. File Page Flow →](/v3-iteration/file-page-flow)**
+- Dynamic page with prefetch and parallel data loading
+- SWR fetching: `/get-batchids` + `/get-file-data`
+- Pusher subscription for batch progress
+- Real-time UI updates via SWR mutate
+
+### **[3. State Management →](/v3-iteration/state-management)**
+- Zustand store for file data, annotations, batch progress
+- Lodash helpers for data manipulation
+- SWR cache synchronization
+- Middleware hooks pattern
+
+## Performance Optimizations
+
+### SWR Configuration
+- **Stale-while-revalidate**: Show cached data instantly, revalidate in background
+- **Dedupe requests**: Prevent duplicate API calls
+- **Focus revalidation**: Refresh data when user returns to tab
+- **Error retry**: Exponential backoff for failed requests
+
+### Pusher Optimization
+- **Single channel per user**: Subscribe to `userId` channel only
+- **Event filtering**: Filter events by `fileId` and `batchId` client-side
+- **Automatic reconnection**: Handle connection drops gracefully
+- **Unsubscribe on unmount**: Clean up subscriptions
+
+### Next.js App Router
+- **Server Components**: Fetch initial data server-side
+- **Client Components**: Interactive UI with SWR hooks
+- **Parallel Routes**: Load multiple data sources simultaneously
+- **Streaming SSR**: Progressive rendering for faster perceived performance
+
+## UX Improvements
+
+| Feature | V2 Approach | V3 Approach |
+|---------|-------------|-------------|
+| **File Upload** | Server-side parsing | Client-side with live previews |
+| **Page Selection** | Basic input | Visual thumbnails + range picker |
+| **Navigation** | Redirect + full reload | Next.js navigation + prefetch |
+| **Data Loading** | Sequential API calls | Parallel SWR requests |
+| **Real-time Updates** | Poll or manual refresh | Pusher → SWR mutate (instant) |
+| **State Management** | React Context | Zustand (optimized re-renders) |
+| **Error Handling** | Manual retry | SWR auto-retry + error boundaries |
+
+## Workflow Overview
+
+```mermaid
+graph TD
+    A[User: Select File] --> B[Client: Parse with pdf.dist/docx]
+    B --> C[Client: Generate Thumbnails]
+    C --> D[User: Select Pages/Range]
+
+    D --> E[POST /upload: Blob + Pages]
+    E --> F[Backend: Store File + Queue Celery]
+
+    F --> G[Navigate to /file/fileId]
+
+    G --> H[Server Component: Prefetch Initial Data]
+    H --> I[Client Component: Mount]
+
+    I --> J[Parallel SWR Calls]
+    J --> K[GET /get-batchids userId]
+    J --> L[GET /get-file-data fileId + pages]
+
+    K --> M[Zustand: Store Batch Progress]
+    L --> N[Zustand: Store File Data]
+
+    M --> O[Pusher: Subscribe userId channel]
+    O --> P{Event: batchId match?}
+
+    P -->|Yes| Q[SWR: mutate /get-file-data]
+    P -->|No| O
+
+    Q --> R[UI: Update with New Data]
+
+    style A fill:#2563eb,stroke:#1e40af,stroke-width:2px,color:#fff
+    style B fill:#06b6d4,stroke:#0891b2,stroke-width:2px,color:#fff
+    style E fill:#dc2626,stroke:#b91c1c,stroke-width:2px,color:#fff
+    style F fill:#10b981,stroke:#059669,stroke-width:2px,color:#fff
+    style G fill:#2563eb,stroke:#1e40af,stroke-width:2px,color:#fff
+    style J fill:#06b6d4,stroke:#0891b2,stroke-width:2px,color:#fff
+    style M fill:#8b5cf6,stroke:#7c3aed,stroke-width:2px,color:#fff
+    style N fill:#8b5cf6,stroke:#7c3aed,stroke-width:2px,color:#fff
+    style O fill:#f59e0b,stroke:#d97706,stroke-width:2px,color:#fff
+    style Q fill:#06b6d4,stroke:#0891b2,stroke-width:2px,color:#fff
+    style R fill:#16a34a,stroke:#15803d,stroke-width:2px,color:#fff
+```
+
+## Documentation Structure
+
+Each section includes:
+- **Flow diagrams** with step-by-step visual representation
+- **API contracts** with request/response examples
+- **Code patterns** for hooks, components, and utilities
+- **Best practices** for Next.js, SWR, and Pusher integration
+
+Explore the detailed flows in the navigation menu.
