@@ -71,7 +71,7 @@ graph TD
 
 ## Core Flows
 
-The V3 iteration focuses on three primary user flows:
+The V3 iteration focuses on four primary user flows:
 
 ### **[1. File Upload Flow →](/v3-iteration/file-upload-flow)**
 - Client-side file parsing and thumbnail generation
@@ -85,7 +85,13 @@ The V3 iteration focuses on three primary user flows:
 - Pusher subscription for batch progress
 - Real-time UI updates via SWR mutate
 
-### **[3. State Management →](/v3-iteration/state-management)**
+### **[3. User Control Flow →](/v3-iteration/user-control-flow)**
+- Auto-layout and auto-extraction toggle management
+- Conflict resolution for manual annotations during auto-processing
+- Progressive activation for mid-process setting changes
+- Priority-based annotation merging strategies
+
+### **[4. State Management →](/v3-iteration/state-management)**
 - Zustand store for file data, annotations, batch progress
 - Lodash helpers for data manipulation
 - SWR cache synchronization
