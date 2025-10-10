@@ -6,56 +6,120 @@ Advanced user control system for managing auto-layout detection, auto-extraction
 
 ```mermaid
 graph TD
-    A[User Settings Layer] --> B{Auto-Layout?}
-    A --> C{Auto-Extract?}
-    A --> D{Auto-Dimensions?}
+    A[User Settings Layer] --> B{Auto-Layout Data?}
+    A --> C{Auto-Extract Data?}
+    A --> D{Auto-Layout Dimensions?}
+    A --> E{Auto-Extract Dimensions?}
 
-    B -->|ON| E[Queue Layout Detection]
-    B -->|OFF| F[Manual Annotation Mode]
+    B -->|ON| F[Queue Data Layout Detection]
+    B -->|OFF| G[Manual Data Annotation Mode]
 
-    E --> G[Page Status: PROCESSING]
-    G --> H[Block Manual Edits]
-    H --> I[Detect Bounding Boxes]
-    I --> C
+    F --> H[Page Status: PROCESSING DATA]
+    H --> I[Block Manual Edits]
+    I --> J[Detect Data Bounding Boxes]
+    J --> K[Page Status: COMPLETED]
+    K --> L[Unlock Manual Edits]
+    L --> C
 
-    C -->|ON| J[Queue Auto-Extraction]
-    C -->|OFF| K[Show Detected Boxes]
+    C -->|ON| M[Queue Auto Data Extraction]
+    C -->|OFF| N[Show Detected Data Boxes]
 
-    J --> L[Extract All Boxes]
-    L --> D
+    M --> O[Extract All Data Boxes]
+    O --> P[Save as Data Version 1]
+    P --> L
 
-    D -->|ON| M[Queue Dimension Detection]
-    D -->|OFF| Q[Save as Version 1]
+    N --> Q[User Modifies Data Annotations]
+    L --> Q
 
-    M --> O[Detect Dimensions]
-    O --> N[Save as Version 1]
-    N --> P[Page Status: COMPLETED]
-    P --> Q[Unlock Manual Edits]
+    Q --> R[Save as Data Draft]
+    R --> S{User Clicks Save/Sync?}
+    S -->|Yes| T[Extract Data Draft]
+    T --> U{Has Data Version?}
+    U -->|Yes| V[Save as Data Version 2+]
+    U -->|No| W[Save as Data Version 1]
+    V --> X[Update Active Data Version]
+    W --> X
 
-    F --> R[Manual Annotation]
-    R --> S{User Triggers Extract?}
-    S -->|Yes| T[Manual Extraction]
-    T --> U[Save as Version 1]
+    G --> Y[Manual Data Annotation]
+    Y --> Z{User Triggers Extract?}
+    Z -->|Yes| AA[Manual Data Extraction]
+    AA --> W
 
-    Q --> V[User Modifies Annotations]
-    V --> W[Save as Draft]
-    W --> X{User Triggers Extract?}
-    X -->|Yes| Y[Extract Draft]
-    Y --> Z[Save as Version 2, if we have version 1]
-    Z --> AA[Update Active Version]
+    P --> D
+    X --> D
+    W --> D
 
-    K --> V
+    D -->|ON| AB[Queue Dimension Layout Detection]
+    D -->|OFF| AC[Manual Dimension Annotation Mode]
+
+    AB --> AD[Page Status: PROCESSING DIMENSIONS]
+    AD --> AE[Block Manual Edits]
+    AE --> AF[Detect Dimension Bounding Boxes]
+    AF --> AG[Page Status: COMPLETED]
+    AG --> AH[Unlock Manual Edits]
+    AH --> E
+
+    E -->|ON| AI[Queue Auto Dimension Extraction]
+    E -->|OFF| AJ[Show Detected Dimension Boxes]
+
+    AI --> AK[Extract All Dimension Boxes]
+    AK --> AL[Save as Dimension Version 1]
+    AL --> AH
+
+    AJ --> AM[User Modifies Dimension Annotations]
+    AH --> AM
+
+    AM --> AN[Save as Dimension Draft]
+    AN --> AO{User Clicks Save/Sync?}
+    AO -->|Yes| AP[Extract Dimension Draft]
+    AP --> AQ{Has Dimension Version?}
+    AQ -->|Yes| AR[Save as Dimension Version 2+]
+    AQ -->|No| AS[Save as Dimension Version 1]
+    AR --> AT[Update Active Dimension Version]
+    AS --> AT
+
+    AC --> AU[Manual Dimension Annotation]
+    AU --> AV{User Triggers Extract?}
+    AV -->|Yes| AW[Manual Dimension Extraction]
+    AW --> AS
+
+    X --> AX{User Clicks Export?}
+    AT --> AX
+    AX -->|Yes| AY[Export Active Versions]
+    AY --> AZ[Download JSON/CSV/Excel]
+
+    Q --> AX
+    AM --> AX
+
+    AT --> BA{Toggle View?}
+    X --> BA
+    BA -->|Dimensions| BB[Show Dimension]
+    BA -->|Data| BC[Show Data]
 
     style A fill:#2563eb,stroke:#1e40af,stroke-width:2px,color:#fff
     style B fill:#f59e0b,stroke:#d97706,stroke-width:2px,color:#fff
     style C fill:#f59e0b,stroke:#d97706,stroke-width:2px,color:#fff
     style D fill:#f59e0b,stroke:#d97706,stroke-width:2px,color:#fff
-    style G fill:#dc2626,stroke:#b91c1c,stroke-width:2px,color:#fff
+    style E fill:#f59e0b,stroke:#d97706,stroke-width:2px,color:#fff
     style H fill:#dc2626,stroke:#b91c1c,stroke-width:2px,color:#fff
-    style N fill:#16a34a,stroke:#15803d,stroke-width:2px,color:#fff
+    style I fill:#dc2626,stroke:#b91c1c,stroke-width:2px,color:#fff
+    style AD fill:#dc2626,stroke:#b91c1c,stroke-width:2px,color:#fff
+    style AE fill:#dc2626,stroke:#b91c1c,stroke-width:2px,color:#fff
+    style K fill:#16a34a,stroke:#15803d,stroke-width:2px,color:#fff
+    style L fill:#16a34a,stroke:#15803d,stroke-width:2px,color:#fff
     style P fill:#16a34a,stroke:#15803d,stroke-width:2px,color:#fff
-    style W fill:#8b5cf6,stroke:#7c3aed,stroke-width:2px,color:#fff
-    style Z fill:#16a34a,stroke:#15803d,stroke-width:2px,color:#fff
+    style V fill:#16a34a,stroke:#15803d,stroke-width:2px,color:#fff
+    style W fill:#16a34a,stroke:#15803d,stroke-width:2px,color:#fff
+    style X fill:#16a34a,stroke:#15803d,stroke-width:2px,color:#fff
+    style AG fill:#16a34a,stroke:#15803d,stroke-width:2px,color:#fff
+    style AH fill:#16a34a,stroke:#15803d,stroke-width:2px,color:#fff
+    style AL fill:#16a34a,stroke:#15803d,stroke-width:2px,color:#fff
+    style AR fill:#16a34a,stroke:#15803d,stroke-width:2px,color:#fff
+    style AS fill:#16a34a,stroke:#15803d,stroke-width:2px,color:#fff
+    style AT fill:#16a34a,stroke:#15803d,stroke-width:2px,color:#fff
+    style R fill:#8b5cf6,stroke:#7c3aed,stroke-width:2px,color:#fff
+    style AN fill:#8b5cf6,stroke:#7c3aed,stroke-width:2px,color:#fff
+    style AY fill:#10b981,stroke:#059669,stroke-width:2px,color:#fff
 ```
 
 ## Core Principles
@@ -67,11 +131,16 @@ graph TD
 - UI shows loading overlay with progress indicator
 - Unlocks only when page reaches `completed` state
 
-### 2. Version Management
+### 2. Version Management & Draft System
 
-- **Version 1**: Created when auto-layout + auto-extraction completes (or manual extraction)
-- **Draft**: User modifications saved as draft (no new version yet)
-- **Version 2+**: Created only when user triggers extraction on draft
+- **Draft**: Any user modification (add, edit, delete annotations) is automatically saved as draft
+- **Version 1**: Created when:
+  - Auto-extraction completes, OR
+  - User clicks **Save/Sync** button on draft (without existing version), OR
+  - User manually triggers extraction
+- **Version 2+**: Created when user clicks **Save/Sync** button on draft (with existing version)
+- **Save/Sync Button**: Triggers extraction and converts draft → new version
+- **Export**: User can export active version data at any time (JSON/CSV/Excel)
 - No version selection modal - active version is always the latest
 - User can only edit if page is not currently processing
 
@@ -340,55 +409,53 @@ graph TD
     style AJ fill:#16a34a,stroke:#15803d,stroke-width:2px,color:#fff
 ```
 
-## Scenario 1: Manual Edits After Auto-Processing
+## Scenario 1: Save/Sync Draft to Version
 
 ### Problem
 
-User wants to modify annotations after auto-layout and auto-extraction completes.
+User modifies annotations and wants to save changes as a new version.
 
-### Solution: Draft + Versioning System
+### Solution: Draft + Save/Sync System
 
 ```mermaid
 graph TD
-    A[Auto-Processing Complete] --> B[Version 1 Created]
-    B --> C[Page Status: COMPLETED]
-    C --> D[UI Unlocked]
+    A[User Modifies Annotation] --> B[Auto-save to Draft]
+    B --> C[Show Draft Indicator]
+    C --> D[Enable Save/Sync Button]
 
-    D --> E[User Modifies Annotation]
-    E --> F[Check Version Status]
-    F --> G{Draft Exists?}
+    D --> E{User Clicks Save/Sync?}
+    E -->|Yes| F[POST /sync-draft]
+    E -->|No| G[Keep as Draft]
 
-    G -->|No| H[Create Draft from Version 1]
-    G -->|Yes| I[Update Existing Draft]
+    F --> H[Lock UI: Syncing Draft]
+    H --> I[Extract Draft Annotations]
+    I --> J{Has Active Version?}
 
-    H --> J[Save Changes to Draft]
-    I --> J
-    J --> K[Show Draft Indicator in UI]
-    K --> L[Enable Extract Button]
+    J -->|Yes| K[Get Current Version Number]
+    J -->|No| L[Set Version Number = 1]
 
-    L --> M{User Clicks Extract?}
-    M -->|Yes| N[POST /extract-draft]
-    M -->|No| O[Keep as Draft]
+    K --> M[Increment Version Number]
+    M --> N[Save as Version N+1]
+    L --> O[Save as Version 1]
 
-    N --> P[Lock UI: Processing Draft]
-    P --> Q[Extract Modified Annotations]
-    Q --> R{Auto-Dimensions ON?}
-    R -->|Yes| S[Detect Dimensions]
-    R -->|No| T[Save as Version 2]
-    S --> T
-    T --> U[Set Version 2 as Active]
-    U --> V[Delete Draft]
-    V --> W[Unlock UI]
-    W --> X[Show Version 2 Data]
+    N --> P[Set as Active Version]
+    O --> P
+    P --> Q[Delete Draft]
+    Q --> R[Unlock UI]
+    R --> S[Show Success: Version Saved]
 
-    style A fill:#8b5cf6,stroke:#7c3aed,stroke-width:2px,color:#fff
-    style B fill:#16a34a,stroke:#15803d,stroke-width:2px,color:#fff
-    style E fill:#2563eb,stroke:#1e40af,stroke-width:2px,color:#fff
-    style J fill:#f59e0b,stroke:#d97706,stroke-width:2px,color:#fff
-    style K fill:#f59e0b,stroke:#d97706,stroke-width:2px,color:#fff
-    style P fill:#dc2626,stroke:#b91c1c,stroke-width:2px,color:#fff
-    style T fill:#16a34a,stroke:#15803d,stroke-width:2px,color:#fff
-    style X fill:#16a34a,stroke:#15803d,stroke-width:2px,color:#fff
+    G --> T[User Can Continue Editing]
+    T --> A
+
+    style A fill:#2563eb,stroke:#1e40af,stroke-width:2px,color:#fff
+    style B fill:#8b5cf6,stroke:#7c3aed,stroke-width:2px,color:#fff
+    style C fill:#f59e0b,stroke:#d97706,stroke-width:2px,color:#fff
+    style D fill:#f59e0b,stroke:#d97706,stroke-width:2px,color:#fff
+    style H fill:#dc2626,stroke:#b91c1c,stroke-width:2px,color:#fff
+    style N fill:#16a34a,stroke:#15803d,stroke-width:2px,color:#fff
+    style O fill:#16a34a,stroke:#15803d,stroke-width:2px,color:#fff
+    style P fill:#16a34a,stroke:#15803d,stroke-width:2px,color:#fff
+    style S fill:#16a34a,stroke:#15803d,stroke-width:2px,color:#fff
 ```
 
 ### Implementation: Draft Management Hook
@@ -451,17 +518,17 @@ export function useDraftManager(fileId: string, pageNumber: number) {
     toast.info("Changes saved to draft");
   };
 
-  // Extract draft and create new version
-  const extractDraft = async () => {
+  // Sync draft and create new version (Save/Sync button)
+  const syncDraft = async () => {
     if (!existingDraft) {
-      toast.error("No draft to extract");
+      toast.error("No draft to sync");
       return;
     }
 
     // Lock page
-    updatePageStatus(fileId, pageNumber, "extracting");
+    updatePageStatus(fileId, pageNumber, "extracting-data");
 
-    const response = await fetch("/api/extract-draft", {
+    const response = await fetch("/api/sync-draft", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -469,15 +536,16 @@ export function useDraftManager(fileId: string, pageNumber: number) {
         pageNumber,
         draftId: existingDraft.draftId,
         annotations: existingDraft.annotations,
-        autoDimensions: settings.autoDimensions, // Pass dimension setting
       }),
     });
 
-    const { versionId, batchId } = await response.json();
+    const { versionId, versionNumber, batchId } = await response.json();
 
-    toast.success(`Extracting draft... (Batch: ${batchId})`);
+    toast.success(
+      `Syncing draft to Version ${versionNumber}... (Batch: ${batchId})`
+    );
 
-    // Pusher will handle unlocking when extraction completes
+    // Pusher will handle unlocking when sync completes
   };
 
   // Discard draft
@@ -495,9 +563,201 @@ export function useDraftManager(fileId: string, pageNumber: number) {
     hasDraft: !!existingDraft,
     isLocked: isPageLocked(),
     saveAnnotationToDraft,
-    extractDraft,
+    syncDraft,
     discardDraft,
   };
+}
+```
+
+## Scenario 1B: Export Data
+
+### Problem
+
+User wants to export extracted data in various formats (JSON/CSV/Excel).
+
+### Solution: Export Active Version
+
+```mermaid
+graph TD
+    A[User Clicks Export Button] --> B{Has Active Version?}
+    B -->|No| C[Show Error: No Data to Export]
+    B -->|Yes| D[Show Export Options Modal]
+
+    D --> E{Select Format}
+    E -->|JSON| F[POST /export/json]
+    E -->|CSV| G[POST /export/csv]
+    E -->|Excel| H[POST /export/excel]
+
+    F --> I[Backend: Get Active Version]
+    G --> I
+    H --> I
+
+    I --> J[Transform Annotations to Export Format]
+    J --> K{Include Dimensions?}
+    K -->|Yes| L[Merge Data + Dimension Versions]
+    K -->|No| M[Use Data Version Only]
+
+    L --> N[Generate Export File]
+    M --> N
+
+    N --> O[Return File to Frontend]
+    O --> P[Browser: Download File]
+    P --> Q[Show Success Toast]
+
+    style A fill:#2563eb,stroke:#1e40af,stroke-width:2px,color:#fff
+    style D fill:#f59e0b,stroke:#d97706,stroke-width:2px,color:#fff
+    style I fill:#8b5cf6,stroke:#7c3aed,stroke-width:2px,color:#fff
+    style J fill:#8b5cf6,stroke:#7c3aed,stroke-width:2px,color:#fff
+    style N fill:#10b981,stroke:#059669,stroke-width:2px,color:#fff
+    style P fill:#10b981,stroke:#059669,stroke-width:2px,color:#fff
+    style Q fill:#16a34a,stroke:#15803d,stroke-width:2px,color:#fff
+```
+
+### Implementation: Export Hook
+
+```tsx
+// hooks/useExport.ts
+import { useVersionStore } from "@/store/versionStore";
+import { useFileStore } from "@/store/fileStore";
+
+export function useExport(fileId: string, pageNumber: number) {
+  const { versions, dimensionVersions } = useVersionStore();
+  const { files } = useFileStore();
+
+  const activeDataVersion = _.find(versions[fileId], {
+    pageNumber,
+    isActive: true,
+  });
+
+  const activeDimensionVersion = _.find(dimensionVersions[fileId], {
+    pageNumber,
+    isActive: true,
+  });
+
+  const canExport = !!activeDataVersion;
+
+  const exportData = async (
+    format: "json" | "csv" | "excel",
+    includeDimensions: boolean = false
+  ) => {
+    if (!activeDataVersion) {
+      toast.error("No data to export");
+      return;
+    }
+
+    const payload = {
+      fileId,
+      pageNumber,
+      dataVersionId: activeDataVersion.versionId,
+      dimensionVersionId: includeDimensions
+        ? activeDimensionVersion?.versionId
+        : null,
+      format,
+    };
+
+    const response = await fetch("/api/export", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      toast.error("Export failed");
+      return;
+    }
+
+    // Download file
+    const blob = await response.blob();
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${fileId}_page${pageNumber}_v${activeDataVersion.versionNumber}.${format}`;
+    document.body.appendChild(a);
+    a.click();
+    window.URL.revokeObjectURL(url);
+    document.body.removeChild(a);
+
+    toast.success(`Exported as ${format.toUpperCase()}`);
+  };
+
+  return {
+    canExport,
+    hasDimensions: !!activeDimensionVersion,
+    activeDataVersion,
+    activeDimensionVersion,
+    exportData,
+  };
+}
+```
+
+### Export UI Component
+
+```tsx
+// components/ExportButton.tsx
+"use client";
+
+import { useExport } from "@/hooks/useExport";
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuCheckboxItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Download } from "lucide-react";
+import { useState } from "react";
+
+export function ExportButton({
+  fileId,
+  pageNumber,
+}: {
+  fileId: string;
+  pageNumber: number;
+}) {
+  const { canExport, hasDimensions, exportData } = useExport(
+    fileId,
+    pageNumber
+  );
+  const [includeDimensions, setIncludeDimensions] = useState(true);
+
+  if (!canExport) return null;
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="outline" size="sm">
+          <Download className="w-4 h-4 mr-2" />
+          Export
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-48">
+        {hasDimensions && (
+          <>
+            <DropdownMenuCheckboxItem
+              checked={includeDimensions}
+              onCheckedChange={setIncludeDimensions}
+            >
+              Include Dimensions
+            </DropdownMenuCheckboxItem>
+            <DropdownMenuSeparator />
+          </>
+        )}
+        <DropdownMenuItem onClick={() => exportData("json", includeDimensions)}>
+          Export as JSON
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={() => exportData("csv", includeDimensions)}>
+          Export as CSV
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          onClick={() => exportData("excel", includeDimensions)}
+        >
+          Export as Excel
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
 }
 ```
 
@@ -1185,7 +1445,7 @@ export function FileSettings({
 import { useDraftManager } from "@/hooks/useDraftManager";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { AlertCircle } from "lucide-react";
+import { AlertCircle, Save } from "lucide-react";
 
 export function DraftIndicator({
   fileId,
@@ -1194,7 +1454,7 @@ export function DraftIndicator({
   fileId: string;
   pageNumber: number;
 }) {
-  const { hasDraft, isLocked, extractDraft, discardDraft } = useDraftManager(
+  const { hasDraft, isLocked, syncDraft, discardDraft } = useDraftManager(
     fileId,
     pageNumber
   );
@@ -1224,8 +1484,9 @@ export function DraftIndicator({
         >
           Discard
         </Button>
-        <Button onClick={extractDraft} size="sm" disabled={isLocked}>
-          {isLocked ? "Processing..." : "Extract & Save"}
+        <Button onClick={syncDraft} size="sm" disabled={isLocked}>
+          <Save className="w-4 h-4 mr-2" />
+          {isLocked ? "Syncing..." : "Save/Sync"}
         </Button>
       </div>
     </div>
@@ -1327,6 +1588,45 @@ const debouncedSave = _.debounce(saveAnnotationToDraft, 1000);
 - Show visual feedback (overlay + spinner)
 - Disable toolbar buttons
 - Queue user actions and retry after unlock
+
+### 6. Export Functionality
+
+- Export data in JSON, CSV, or Excel formats
+- Option to include dimension data in export
+- Download file with version number in filename
+- Export available anytime after Version 1 is created
+
+## Key Features Summary
+
+### Draft & Version Workflow
+
+1. **User edits annotations** → Auto-saves to draft
+2. **Draft indicator appears** → Shows "Save/Sync" button
+3. **User clicks Save/Sync** → Triggers extraction
+4. **System creates version** → Version 1 (first time) or increments version number
+5. **Active version updates** → Draft is deleted
+6. **User can export** → Download data in multiple formats
+
+### User Actions Available
+
+| Action                     | When Available                                           | Result                                   |
+| -------------------------- | -------------------------------------------------------- | ---------------------------------------- |
+| **Modify Annotations**     | After unlock / After layout detection (auto-extract OFF) | Creates/Updates draft                    |
+| **Save/Sync**              | When draft exists                                        | Converts draft → new version             |
+| **Discard Draft**          | When draft exists                                        | Deletes draft, reverts to active version |
+| **Export Data**            | After Version 1 created                                  | Downloads JSON/CSV/Excel                 |
+| **Toggle Dimensions View** | After dimension extraction                               | Switches between Data/Dimensions overlay |
+
+### Processing States
+
+| State                         | UI Locked? | User Can...                              |
+| ----------------------------- | ---------- | ---------------------------------------- |
+| `idle`                        | ❌ No      | Draw/Edit/Delete annotations, Export     |
+| `layout-detection-data`       | ✅ Yes     | Wait for detection to complete           |
+| `extracting-data`             | ✅ Yes     | Wait for extraction to complete          |
+| `layout-detection-dimensions` | ✅ Yes     | Wait for dimension detection             |
+| `extracting-dimensions`       | ✅ Yes     | Wait for dimension extraction            |
+| `completed`                   | ❌ No      | Modify annotations, Export, Toggle views |
 
 ## Related Documentation
 
