@@ -1,50 +1,89 @@
 # User Control Flow
 
-Advanced user control system for managing auto-layout detection, auto-extraction, and handling concurrent manual operations during automated processing.
+Advanced user control system for managing auto-layout detection, auto-extraction, auto-dimension detection, versioning, and draft management with blocking during processing.
 
 ## Architecture Overview
 
 ```mermaid
 graph TD
     A[User Settings Layer] --> B{Auto-Layout?}
-    A --> I{Auto-Extract ON?}
+    A --> C{Auto-Extract?}
+    A --> D{Auto-Dimensions?}
 
-    B -->|ON| D[Queue Layout Detection]
-    B -->|OFF| E[Manual Annotation Mode]
+    B -->|ON| E[Queue Layout Detection]
+    B -->|OFF| F[Manual Annotation Mode]
 
+    E --> G[Page Status: PROCESSING]
+    G --> H[Block Manual Edits]
+    H --> I[Detect Bounding Boxes]
+    I --> C
 
+    C -->|ON| J[Queue Auto-Extraction]
+    C -->|OFF| K[Show Detected Boxes]
 
-    D --> H[Detect Bounding Boxes]
-    H --> I{Auto-Extract ON?}
-    I -->|Yes| N
-    I -->|No| J[Show Detected Boxes]
+    J --> L[Extract All Boxes]
+    L --> D
 
-    E --> K[User Draws Annotations]
-    K --> L{User Triggers Extract?}
-    L -->|Yes| M[Process Selected Boxes]
+    D -->|ON| M[Queue Dimension Detection]
+    D -->|OFF| Q[Save as Version 1]
 
-    M --> N[Background Extraction]
-    N --> U
+    M --> O[Detect Dimensions]
+    O --> N[Save as Version 1]
+    N --> P[Page Status: COMPLETED]
+    P --> Q[Unlock Manual Edits]
 
-    O[Manual Annotation Event] --> P{Auto-Processing Active?}
-    P -->|Yes| Q[Conflict Resolution]
-    P -->|No| K
+    F --> R[Manual Annotation]
+    R --> S{User Triggers Extract?}
+    S -->|Yes| T[Manual Extraction]
+    T --> U[Save as Version 1]
 
-    Q --> R[Priority: Manual > Auto]
-    R --> S[Cancel Auto for This Region]
-    S --> U[Save a data in Version store with fileID and pageID]
-    S --> T[Process Manual Annotation]
-    T --> U
-    U --> V[Show a versioning Button in UI to open select changes in modal view]
+    Q --> V[User Modifies Annotations]
+    V --> W[Save as Draft]
+    W --> X{User Triggers Extract?}
+    X -->|Yes| Y[Extract Draft]
+    Y --> Z[Save as Version 2, if we have version 1]
+    Z --> AA[Update Active Version]
 
+    K --> V
 
     style A fill:#2563eb,stroke:#1e40af,stroke-width:2px,color:#fff
     style B fill:#f59e0b,stroke:#d97706,stroke-width:2px,color:#fff
-    style I fill:#f59e0b,stroke:#d97706,stroke-width:2px,color:#fff
-    style D fill:#8b5cf6,stroke:#7c3aed,stroke-width:2px,color:#fff
-    style Q fill:#dc2626,stroke:#b91c1c,stroke-width:2px,color:#fff
-    style R fill:#16a34a,stroke:#15803d,stroke-width:2px,color:#fff
+    style C fill:#f59e0b,stroke:#d97706,stroke-width:2px,color:#fff
+    style D fill:#f59e0b,stroke:#d97706,stroke-width:2px,color:#fff
+    style G fill:#dc2626,stroke:#b91c1c,stroke-width:2px,color:#fff
+    style H fill:#dc2626,stroke:#b91c1c,stroke-width:2px,color:#fff
+    style N fill:#16a34a,stroke:#15803d,stroke-width:2px,color:#fff
+    style P fill:#16a34a,stroke:#15803d,stroke-width:2px,color:#fff
+    style W fill:#8b5cf6,stroke:#7c3aed,stroke-width:2px,color:#fff
+    style Z fill:#16a34a,stroke:#15803d,stroke-width:2px,color:#fff
 ```
+
+## Core Principles
+
+### 1. Blocking During Processing
+
+- Manual annotations are **blocked** while page is in `processing` state
+- User cannot draw, edit, or delete annotations during auto-layout/extraction
+- UI shows loading overlay with progress indicator
+- Unlocks only when page reaches `completed` state
+
+### 2. Version Management
+
+- **Version 1**: Created when auto-layout + auto-extraction completes (or manual extraction)
+- **Draft**: User modifications saved as draft (no new version yet)
+- **Version 2+**: Created only when user triggers extraction on draft
+- No version selection modal - active version is always the latest
+- User can only edit if page is not currently processing
+
+### 3. Dimension Detection (Independent Flow)
+
+- **Completely separate** from data extraction with its own toggles:
+  - **Auto-Layout Dimensions**: Detect dimension bounding boxes
+  - **Auto-Extract Dimensions**: Extract dimension data from boxes
+- If auto-layout is OFF, user can manually draw dimension annotations
+- If auto-extract dimensions is OFF, user can edit detected boxes and manually trigger dimension extraction
+- Follows same versioning/draft logic as data extraction (independent versions)
+- User can switch between layout views: **Dimensions** / **Data**
 
 ## User Settings Management
 
@@ -57,23 +96,42 @@ import { persist } from "zustand/middleware";
 
 interface FileSettings {
   fileId: string;
-  autoLayout: boolean;
-  autoExtraction: boolean;
+
+  // Data extraction settings
+  autoLayoutData: boolean;
+  autoExtractData: boolean;
+
+  // Dimension detection settings (independent)
+  autoLayoutDimensions: boolean;
+  autoExtractDimensions: boolean;
+
   selectedPages: number[];
-  processingState: "idle" | "layout-detection" | "extracting" | "completed";
+  processingState:
+    | "idle"
+    | "layout-detection-data"
+    | "extracting-data"
+    | "layout-detection-dimensions"
+    | "extracting-dimensions"
+    | "completed";
+  layoutView: "dimensions" | "data"; // Toggle between dimension and data views
 }
 
 interface SettingsState {
   files: Record<string, FileSettings>;
 
   // Global defaults
-  defaultAutoLayout: boolean;
-  defaultAutoExtraction: boolean;
+  defaultAutoLayoutData: boolean;
+  defaultAutoExtractData: boolean;
+  defaultAutoLayoutDimensions: boolean;
+  defaultAutoExtractDimensions: boolean;
 
   // Actions
   setFileSettings: (fileId: string, settings: Partial<FileSettings>) => void;
-  toggleAutoLayout: (fileId: string) => void;
-  toggleAutoExtraction: (fileId: string) => void;
+  toggleAutoLayoutData: (fileId: string) => void;
+  toggleAutoExtractData: (fileId: string) => void;
+  toggleAutoLayoutDimensions: (fileId: string) => void;
+  toggleAutoExtractDimensions: (fileId: string) => void;
+  toggleLayoutView: (fileId: string) => void;
   getFileSettings: (fileId: string) => FileSettings;
   resetFileSettings: (fileId: string) => void;
 }
@@ -82,8 +140,10 @@ export const useSettingsStore = create<SettingsState>()(
   persist(
     (set, get) => ({
       files: {},
-      defaultAutoLayout: true,
-      defaultAutoExtraction: false,
+      defaultAutoLayoutData: true,
+      defaultAutoExtractData: false,
+      defaultAutoLayoutDimensions: false,
+      defaultAutoExtractDimensions: false,
 
       setFileSettings: (fileId, settings) =>
         set((state) => ({
@@ -97,33 +157,83 @@ export const useSettingsStore = create<SettingsState>()(
           },
         })),
 
-      toggleAutoLayout: (fileId) =>
+      toggleAutoLayoutData: (fileId) =>
         set((state) => {
           const current =
-            state.files[fileId]?.autoLayout ?? state.defaultAutoLayout;
+            state.files[fileId]?.autoLayoutData ?? state.defaultAutoLayoutData;
           return {
             files: {
               ...state.files,
               [fileId]: {
                 ...state.files[fileId],
                 fileId,
-                autoLayout: !current,
+                autoLayoutData: !current,
               },
             },
           };
         }),
 
-      toggleAutoExtraction: (fileId) =>
+      toggleAutoExtractData: (fileId) =>
         set((state) => {
           const current =
-            state.files[fileId]?.autoExtraction ?? state.defaultAutoExtraction;
+            state.files[fileId]?.autoExtractData ??
+            state.defaultAutoExtractData;
           return {
             files: {
               ...state.files,
               [fileId]: {
                 ...state.files[fileId],
                 fileId,
-                autoExtraction: !current,
+                autoExtractData: !current,
+              },
+            },
+          };
+        }),
+
+      toggleAutoLayoutDimensions: (fileId) =>
+        set((state) => {
+          const current =
+            state.files[fileId]?.autoLayoutDimensions ??
+            state.defaultAutoLayoutDimensions;
+          return {
+            files: {
+              ...state.files,
+              [fileId]: {
+                ...state.files[fileId],
+                fileId,
+                autoLayoutDimensions: !current,
+              },
+            },
+          };
+        }),
+
+      toggleAutoExtractDimensions: (fileId) =>
+        set((state) => {
+          const current =
+            state.files[fileId]?.autoExtractDimensions ??
+            state.defaultAutoExtractDimensions;
+          return {
+            files: {
+              ...state.files,
+              [fileId]: {
+                ...state.files[fileId],
+                fileId,
+                autoExtractDimensions: !current,
+              },
+            },
+          };
+        }),
+
+      toggleLayoutView: (fileId) =>
+        set((state) => {
+          const current = state.files[fileId]?.layoutView ?? "data";
+          return {
+            files: {
+              ...state.files,
+              [fileId]: {
+                ...state.files[fileId],
+                fileId,
+                layoutView: current === "data" ? "dimensions" : "data",
               },
             },
           };
@@ -134,10 +244,13 @@ export const useSettingsStore = create<SettingsState>()(
         return (
           state.files[fileId] || {
             fileId,
-            autoLayout: state.defaultAutoLayout,
-            autoExtraction: state.defaultAutoExtraction,
+            autoLayoutData: state.defaultAutoLayoutData,
+            autoExtractData: state.defaultAutoExtractData,
+            autoLayoutDimensions: state.defaultAutoLayoutDimensions,
+            autoExtractDimensions: state.defaultAutoExtractDimensions,
             selectedPages: [],
             processingState: "idle",
+            layoutView: "data",
           }
         );
       },
@@ -160,620 +273,741 @@ graph TD
     A[User: Upload File] --> B[Parse PDF + Generate Thumbnails]
     B --> C[Show Page Selection UI]
 
-    C --> D[User: Select Pages 1,3,5,7]
+    C --> D[User: Select Pages]
     D --> E[Settings Panel]
 
-    E --> F{Auto-Layout Toggle?}
+    E --> F{Auto-Layout?}
     F -->|ON| G[Enable Auto-Layout]
-    F -->|OFF| H[Manual Mode Only]
+    F -->|OFF| H[Manual Mode]
 
-    E --> I{Auto-Extract Toggle?}
+    E --> I{Auto-Extract?}
     I -->|ON| J[Enable Auto-Extract]
-    I -->|OFF| K[Manual Extract Only]
+    I -->|OFF| K[Manual Extract]
 
-    G --> L[User: Click Submit]
-    H --> L
-    J --> L
-    K --> L
+    E --> L{Auto-Dimensions?}
+    L -->|ON| M[Enable Auto-Dimensions]
+    L -->|OFF| N[Skip Dimensions]
 
-    L --> M[POST /upload with settings]
-    M --> N[Backend: Store File + Settings]
+    G --> O[User: Click Submit]
+    H --> O
+    J --> O
+    K --> O
+    M --> O
+    N --> O
 
-    N --> O{Auto-Layout ON?}
-    O -->|Yes| P[Queue: layout_detection_task]
-    O -->|No| Q[Skip Auto-Layout]
+    O --> P[POST /upload with settings]
+    P --> Q[Backend: Store File + Settings]
+    Q --> R[Set Page Status: PROCESSING]
+    R --> S[Block UI Interactions]
 
-    P --> R[Celery: Detect Bounding Boxes]
-    R --> S[Save Annotations to MongoDB]
-    S --> T[Pusher: layout-complete Event]
+    S --> T{Auto-Layout ON?}
+    T -->|Yes| U[Queue: layout_detection_task]
+    T -->|No| V[Skip to Manual Mode]
 
-    T --> U{Auto-Extract ON?}
-    U -->|Yes| V[Queue: auto_extraction_task]
-    U -->|No| W[Wait for User Action]
+    U --> W[Celery: Detect Bounding Boxes]
+    W --> X[Save Annotations to MongoDB]
+    X --> Y[Pusher: layout-complete Event]
 
-    Q --> X[Navigate to /file/fileId]
-    W --> X
+    Y --> Z{Auto-Extract ON?}
+    Z -->|Yes| AA[Queue: auto_extraction_task]
+    Z -->|No| AB[Set Status: COMPLETED]
 
-    V --> Y[Extract All Detected Boxes]
-    Y --> Z[Pusher: extraction-progress Events]
-    Z --> X
+    AA --> AC[Extract All Detected Boxes]
+    AC --> AD[Pusher: extraction-progress Events]
+    AD --> AE{Auto-Dimensions ON?}
+
+    AE -->|Yes| AF[Queue: dimension_detection_task]
+    AE -->|No| AG[Save as Version 1]
+
+    AF --> AH[Detect Dimensions for All Boxes]
+    AH --> AG
+    AG --> AB
+    AB --> AI[Unlock UI]
+    AI --> AJ[Navigate to /file/fileId]
+
+    V --> AJ
 
     style A fill:#2563eb,stroke:#1e40af,stroke-width:2px,color:#fff
     style E fill:#f59e0b,stroke:#d97706,stroke-width:2px,color:#fff
-    style M fill:#dc2626,stroke:#b91c1c,stroke-width:2px,color:#fff
-    style P fill:#8b5cf6,stroke:#7c3aed,stroke-width:2px,color:#fff
-    style R fill:#8b5cf6,stroke:#7c3aed,stroke-width:2px,color:#fff
-    style V fill:#8b5cf6,stroke:#7c3aed,stroke-width:2px,color:#fff
-    style X fill:#16a34a,stroke:#15803d,stroke-width:2px,color:#fff
+    style P fill:#dc2626,stroke:#b91c1c,stroke-width:2px,color:#fff
+    style R fill:#dc2626,stroke:#b91c1c,stroke-width:2px,color:#fff
+    style S fill:#dc2626,stroke:#b91c1c,stroke-width:2px,color:#fff
+    style U fill:#8b5cf6,stroke:#7c3aed,stroke-width:2px,color:#fff
+    style AA fill:#8b5cf6,stroke:#7c3aed,stroke-width:2px,color:#fff
+    style AF fill:#8b5cf6,stroke:#7c3aed,stroke-width:2px,color:#fff
+    style AG fill:#16a34a,stroke:#15803d,stroke-width:2px,color:#fff
+    style AB fill:#16a34a,stroke:#15803d,stroke-width:2px,color:#fff
+    style AJ fill:#16a34a,stroke:#15803d,stroke-width:2px,color:#fff
 ```
 
-## Scenario 1: Manual Annotation During Auto-Processing
+## Scenario 1: Manual Edits After Auto-Processing
 
 ### Problem
 
-User toggles auto-layout ON, pages start processing, but user begins drawing manual annotations before auto-processing completes.
+User wants to modify annotations after auto-layout and auto-extraction completes.
 
-### Solution: Priority-Based Conflict Resolution
+### Solution: Draft + Versioning System
 
 ```mermaid
 graph TD
-    A[Auto-Layout Processing: Page 3] --> B[Detected 10 Bounding Boxes]
-    B --> C[Save to MongoDB: ann_001 to ann_010]
+    A[Auto-Processing Complete] --> B[Version 1 Created]
+    B --> C[Page Status: COMPLETED]
+    C --> D[UI Unlocked]
 
-    D[User: Draws Manual Annotation] --> E[Check Page Status]
-    E --> F{Auto-Processing Active?}
+    D --> E[User Modifies Annotation]
+    E --> F[Check Version Status]
+    F --> G{Draft Exists?}
 
-    F -->|Yes| G[Generate Manual annId: man_001]
-    F -->|No| H[Regular Flow: ann_011]
+    G -->|No| H[Create Draft from Version 1]
+    G -->|Yes| I[Update Existing Draft]
 
-    G --> I[Check Overlap with Auto Boxes]
-    I --> J{Overlaps?}
+    H --> J[Save Changes to Draft]
+    I --> J
+    J --> K[Show Draft Indicator in UI]
+    K --> L[Enable Extract Button]
 
-    J -->|Yes 50%+| K[Mark Auto Boxes as Superseded]
-    J -->|No| L[Add as Independent Annotation]
+    L --> M{User Clicks Extract?}
+    M -->|Yes| N[POST /extract-draft]
+    M -->|No| O[Keep as Draft]
 
-    K --> M[Update MongoDB: Auto boxes status=superseded]
-    M --> N[Save Manual Annotation with priority=manual]
-
-    L --> N
-    H --> N
-
-    N --> O[Pusher: annotation-updated Event]
-    O --> P[Frontend: Re-fetch Annotations]
-    P --> Q[Filter: Hide Superseded Auto Boxes]
-    Q --> R[Show Manual Box]
+    N --> P[Lock UI: Processing Draft]
+    P --> Q[Extract Modified Annotations]
+    Q --> R{Auto-Dimensions ON?}
+    R -->|Yes| S[Detect Dimensions]
+    R -->|No| T[Save as Version 2]
+    S --> T
+    T --> U[Set Version 2 as Active]
+    U --> V[Delete Draft]
+    V --> W[Unlock UI]
+    W --> X[Show Version 2 Data]
 
     style A fill:#8b5cf6,stroke:#7c3aed,stroke-width:2px,color:#fff
-    style D fill:#2563eb,stroke:#1e40af,stroke-width:2px,color:#fff
-    style G fill:#f59e0b,stroke:#d97706,stroke-width:2px,color:#fff
-    style K fill:#dc2626,stroke:#b91c1c,stroke-width:2px,color:#fff
-    style R fill:#16a34a,stroke:#15803d,stroke-width:2px,color:#fff
+    style B fill:#16a34a,stroke:#15803d,stroke-width:2px,color:#fff
+    style E fill:#2563eb,stroke:#1e40af,stroke-width:2px,color:#fff
+    style J fill:#f59e0b,stroke:#d97706,stroke-width:2px,color:#fff
+    style K fill:#f59e0b,stroke:#d97706,stroke-width:2px,color:#fff
+    style P fill:#dc2626,stroke:#b91c1c,stroke-width:2px,color:#fff
+    style T fill:#16a34a,stroke:#15803d,stroke-width:2px,color:#fff
+    style X fill:#16a34a,stroke:#15803d,stroke-width:2px,color:#fff
 ```
 
-### Implementation: Conflict Detection Hook
+### Implementation: Draft Management Hook
 
 ```tsx
-// hooks/useAnnotationConflict.ts
+// hooks/useDraftManager.ts
 import { useFileStore } from "@/store/fileStore";
-import { useBatchStore } from "@/store/batchStore";
+import { useVersionStore } from "@/store/versionStore";
+import { useSettingsStore } from "@/store/settingsStore";
 import _ from "lodash";
 
-interface BBox {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
+export function useDraftManager(fileId: string, pageNumber: number) {
+  const { files, updateAnnotation, deleteAnnotation } = useFileStore();
+  const { versions, drafts, createDraft, updateDraft, deleteDraft } =
+    useVersionStore();
+  const { getFileSettings } = useSettingsStore();
 
-export function useAnnotationConflict(fileId: string) {
-  const { files } = useFileStore();
-  const { batches } = useBatchStore();
+  const pageKey = `${fileId}_${pageNumber}`;
+  const activeVersion = _.find(versions[fileId], { isActive: true });
+  const existingDraft = drafts[pageKey];
+  const settings = getFileSettings(fileId);
 
-  // Calculate overlap percentage
-  const calculateOverlap = (bbox1: BBox, bbox2: BBox): number => {
-    const x_overlap = Math.max(
-      0,
-      Math.min(bbox1.x + bbox1.width, bbox2.x + bbox2.width) -
-        Math.max(bbox1.x, bbox2.x)
-    );
-    const y_overlap = Math.max(
-      0,
-      Math.min(bbox1.y + bbox1.height, bbox2.y + bbox2.height) -
-        Math.max(bbox1.y, bbox2.y)
-    );
-
-    const overlapArea = x_overlap * y_overlap;
-    const bbox1Area = bbox1.width * bbox1.height;
-
-    return (overlapArea / bbox1Area) * 100;
-  };
-
-  // Check if auto-processing is active for this file
-  const isAutoProcessing = () => {
-    const activeBatches = _.filter(batches, {
-      fileId,
-      status: "processing",
-      type: "auto-layout",
-    });
-    return activeBatches.length > 0;
-  };
-
-  // Handle manual annotation creation
-  const createManualAnnotation = async (
-    pageNumber: number,
-    bbox: BBox,
-    type: string
-  ) => {
-    const isAutoActive = isAutoProcessing();
-
-    // Generate annotation ID with priority flag
-    const annId = isAutoActive
-      ? `man_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
-      : `ann_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-
-    // Get existing annotations on this page
+  // Check if page is locked (processing)
+  const isPageLocked = () => {
     const page = _.find(files[fileId]?.pages, { pageNumber });
-    const existingAnnotations = page?.annotations || [];
+    return (
+      page?.processingState !== "completed" && page?.processingState !== "idle"
+    );
+  };
 
-    // Check for overlaps with auto-generated annotations
-    const conflicts = _.filter(existingAnnotations, (ann) => {
-      if (!ann.source || ann.source !== "auto-layout") return false;
-      if (ann.status === "superseded") return false;
+  // Create or update draft when user modifies annotation
+  const saveAnnotationToDraft = async (
+    annId: string,
+    changes: Partial<Annotation>
+  ) => {
+    if (isPageLocked()) {
+      toast.error("Page is processing. Manual edits are blocked.");
+      return;
+    }
 
-      const overlap = calculateOverlap(bbox, ann.bbox);
-      return overlap >= 50; // 50% overlap threshold
-    });
+    if (!existingDraft) {
+      // Create new draft from active version
+      await createDraft({
+        fileId,
+        pageNumber,
+        baseVersionId: activeVersion?.versionId,
+        annotations: [{ annId, ...changes }],
+      });
+    } else {
+      // Update existing draft
+      await updateDraft(pageKey, {
+        annotations: [
+          ...existingDraft.annotations.filter((a) => a.annId !== annId),
+          { annId, ...changes },
+        ],
+        updatedAt: new Date().toISOString(),
+      });
+    }
 
-    // API call to create annotation
-    const response = await fetch("/api/create-annotation", {
+    toast.info("Changes saved to draft");
+  };
+
+  // Extract draft and create new version
+  const extractDraft = async () => {
+    if (!existingDraft) {
+      toast.error("No draft to extract");
+      return;
+    }
+
+    // Lock page
+    updatePageStatus(fileId, pageNumber, "extracting");
+
+    const response = await fetch("/api/extract-draft", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         fileId,
         pageNumber,
-        annId,
-        bbox,
-        type,
-        source: "manual",
-        priority: isAutoActive ? "manual" : "normal",
-        supersedes: conflicts.map((c) => c.annId),
+        draftId: existingDraft.draftId,
+        annotations: existingDraft.annotations,
+        autoDimensions: settings.autoDimensions, // Pass dimension setting
       }),
     });
 
-    return response.json();
+    const { versionId, batchId } = await response.json();
+
+    toast.success(`Extracting draft... (Batch: ${batchId})`);
+
+    // Pusher will handle unlocking when extraction completes
+  };
+
+  // Discard draft
+  const discardDraft = async () => {
+    if (!existingDraft) return;
+
+    await deleteDraft(pageKey);
+    toast.info("Draft discarded");
+
+    // Reload annotations from active version
+    reloadActiveVersion(fileId, pageNumber);
   };
 
   return {
-    isAutoProcessing,
-    createManualAnnotation,
-    calculateOverlap,
+    hasDraft: !!existingDraft,
+    isLocked: isPageLocked(),
+    saveAnnotationToDraft,
+    extractDraft,
+    discardDraft,
   };
 }
 ```
 
-## Scenario 2: Toggle Auto-Extract During Processing
+## Scenario 2: Independent Dimension Detection Flow
 
 ### Problem
 
-User has auto-layout ON but auto-extract OFF. Layout detection completes, showing 50 detected boxes. User now toggles auto-extract ON. What happens?
+User wants dimension detection (separate from data extraction) with its own layout detection and extraction controls.
 
-### Solution: Progressive Activation
+### Solution: Independent Dimension Pipeline
 
 ```mermaid
 graph TD
-    A[Auto-Layout Complete] --> B[50 Bounding Boxes Detected]
-    B --> C[Displayed on Page 3]
+    A[Data Extraction Complete] --> B[UI Unlocked]
+    B --> C{Auto-Layout Dimensions ON?}
 
-    D[User: Toggle Auto-Extract ON] --> E[Check Current State]
-    E --> F{Unprocessed Boxes?}
+    C -->|Yes| D[Queue dimension_layout_detection_task]
+    C -->|No| E[Show Manual Dimension Mode]
 
-    F -->|Yes| G[Gather Unprocessed Boxes]
-    F -->|No| H[Show Toast: All Extracted]
+    D --> F[Lock UI: Detecting Dimension Boxes]
+    F --> G[Detect Dimension Bounding Boxes]
+    G --> H{Auto-Extract Dimensions ON?}
 
-    G --> I[Filter: status=detected, extractedData=null]
-    I --> J[Create New Batch]
-    J --> K[POST /process-annotation]
+    H -->|Yes| I[Queue dimension_extraction_task]
+    H -->|No| J[Show Detected Dimension Boxes]
 
-    K --> L[Queue: extract_annotation_task]
-    L --> M[Process Boxes in Background]
+    I --> K[Extract All Dimension Boxes]
+    K --> L[Save Dimension Version 1]
+    L --> M[Unlock UI]
 
-    M --> N[Update Progress: 10/50 Complete]
-    N --> O[Pusher: extraction-progress Event]
-    O --> P[UI: Show Progress Bar]
+    J --> M
 
-    M --> Q{More Boxes?}
-    Q -->|Yes| M
-    Q -->|No| R[Batch Complete]
+    E --> N[User Draws Dimension Annotations]
+    N --> O{User Triggers Extract?}
+    O -->|Yes| P[Manual Dimension Extraction]
+    P --> L
 
-    R --> S[Pusher: batch-complete Event]
-    S --> T[UI: Hide Progress, Show Data]
+    M --> Q[User Modifies Dimension Annotations]
+    Q --> R[Save as Dimension Draft]
+    R --> S{User Triggers Extract?}
+    S -->|Yes| T[Extract Dimension Draft]
+    T --> U[Save Dimension Version 2]
 
-    style D fill:#2563eb,stroke:#1e40af,stroke-width:2px,color:#fff
-    style G fill:#f59e0b,stroke:#d97706,stroke-width:2px,color:#fff
-    style K fill:#dc2626,stroke:#b91c1c,stroke-width:2px,color:#fff
-    style L fill:#8b5cf6,stroke:#7c3aed,stroke-width:2px,color:#fff
-    style T fill:#16a34a,stroke:#15803d,stroke-width:2px,color:#fff
+    M --> V[UI: Show Layout View Toggle]
+    V --> W{User Selects View}
+    W -->|Dimensions| X[Render Dimension Overlay]
+    W -->|Data| Y[Render Extracted Data]
+
+    style C fill:#f59e0b,stroke:#d97706,stroke-width:2px,color:#fff
+    style D fill:#8b5cf6,stroke:#7c3aed,stroke-width:2px,color:#fff
+    style F fill:#dc2626,stroke:#b91c1c,stroke-width:2px,color:#fff
+    style H fill:#f59e0b,stroke:#d97706,stroke-width:2px,color:#fff
+    style I fill:#8b5cf6,stroke:#7c3aed,stroke-width:2px,color:#fff
+    style L fill:#16a34a,stroke:#15803d,stroke-width:2px,color:#fff
+    style M fill:#16a34a,stroke:#15803d,stroke-width:2px,color:#fff
+    style R fill:#8b5cf6,stroke:#7c3aed,stroke-width:2px,color:#fff
+    style U fill:#16a34a,stroke:#15803d,stroke-width:2px,color:#fff
+    style X fill:#10b981,stroke:#059669,stroke-width:2px,color:#fff
+    style Y fill:#10b981,stroke:#059669,stroke-width:2px,color:#fff
 ```
 
-### Implementation: Progressive Extraction Hook
+### Implementation: Dimension Detection Hook
 
 ```tsx
-// hooks/useProgressiveExtraction.ts
+// hooks/useDimensionDetection.ts
 import { useSettingsStore } from "@/store/settingsStore";
+import { useVersionStore } from "@/store/versionStore";
 import { useFileStore } from "@/store/fileStore";
-import { useBatchStore } from "@/store/batchStore";
-import _ from "lodash";
 
-export function useProgressiveExtraction(fileId: string) {
-  const { getFileSettings, setFileSettings } = useSettingsStore();
+export function useDimensionDetection(fileId: string, pageNumber: number) {
+  const {
+    getFileSettings,
+    toggleAutoLayoutDimensions,
+    toggleAutoExtractDimensions,
+    toggleLayoutView,
+  } = useSettingsStore();
+  const { dimensionVersions } = useVersionStore();
   const { files } = useFileStore();
-  const { batches } = useBatchStore();
 
-  const toggleAutoExtraction = async () => {
-    const settings = getFileSettings(fileId);
-    const newState = !settings.autoExtraction;
+  const settings = getFileSettings(fileId);
+  const activeDimensionVersion = _.find(dimensionVersions[fileId], {
+    pageNumber,
+    isActive: true,
+  });
 
-    // Update settings
-    setFileSettings(fileId, { autoExtraction: newState });
+  // Check if dimension processing is active
+  const isDimensionLocked = () => {
+    const page = _.find(files[fileId]?.pages, { pageNumber });
+    return (
+      page?.processingState === "layout-detection-dimensions" ||
+      page?.processingState === "extracting-dimensions"
+    );
+  };
 
-    if (newState) {
-      // User turned ON auto-extraction
-      // Check for unprocessed annotations
-      const pages = files[fileId]?.pages || [];
-      const unprocessedAnnotations = _.chain(pages)
-        .flatMap("annotations")
-        .filter({
-          source: "auto-layout",
-          status: "detected",
-        })
-        .filter((ann) => !ann.extractedData)
-        .value();
+  // Toggle auto-layout for dimensions
+  const toggleDimensionLayout = async () => {
+    if (isDimensionLocked()) {
+      toast.error("Dimension processing is active");
+      return;
+    }
 
-      if (unprocessedAnnotations.length === 0) {
-        toast.info("All detected annotations already processed");
-        return;
-      }
+    toggleAutoLayoutDimensions(fileId);
 
-      // Create extraction batch
-      const items = unprocessedAnnotations.map((ann) => ({
-        annId: ann.annId,
-        type: ann.type,
-        bbox: ann.bbox,
-        pageNumber: ann.pageNumber,
-        fileId,
-      }));
-
-      const response = await fetch("/api/process-annotation", {
+    // If turning ON and no dimension version exists, trigger detection
+    if (!settings.autoLayoutDimensions && !activeDimensionVersion) {
+      const response = await fetch("/api/detect-dimension-layout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ items, trigger: "auto-extract-toggle" }),
+        body: JSON.stringify({
+          fileId,
+          pageNumber,
+          autoExtract: settings.autoExtractDimensions,
+        }),
       });
 
       const { batchId } = await response.json();
-
-      toast.success(`Processing ${items.length} annotations...`);
-    } else {
-      // User turned OFF auto-extraction
-      // Check if there's an active extraction batch
-      const activeExtractionBatch = _.find(batches, {
-        fileId,
-        status: "processing",
-        type: "extraction",
-      });
-
-      if (activeExtractionBatch) {
-        // Cancel ongoing extraction
-        await fetch("/api/cancel-batch", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ batchId: activeExtractionBatch.batchId }),
-        });
-
-        toast.info("Stopped auto-extraction. Completed items will be saved.");
-      }
+      toast.success("Detecting dimension layout...");
     }
   };
 
-  return { toggleAutoExtraction };
+  // Toggle auto-extract for dimensions
+  const toggleDimensionExtract = () => {
+    if (isDimensionLocked()) {
+      toast.error("Dimension processing is active");
+      return;
+    }
+
+    toggleAutoExtractDimensions(fileId);
+  };
+
+  // Manual trigger dimension extraction
+  const extractDimensions = async () => {
+    if (!activeDimensionVersion) {
+      toast.error("No dimension layout detected");
+      return;
+    }
+
+    const response = await fetch("/api/extract-dimensions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        fileId,
+        pageNumber,
+        versionId: activeDimensionVersion.versionId,
+      }),
+    });
+
+    const { batchId } = await response.json();
+    toast.success("Extracting dimensions...");
+  };
+
+  const switchLayoutView = () => {
+    if (!activeDimensionVersion) {
+      toast.error("No dimension data available");
+      return;
+    }
+
+    toggleLayoutView(fileId);
+  };
+
+  return {
+    autoLayoutDimensions: settings.autoLayoutDimensions,
+    autoExtractDimensions: settings.autoExtractDimensions,
+    layoutView: settings.layoutView,
+    hasDimensions: !!activeDimensionVersion,
+    isLocked: isDimensionLocked(),
+    toggleDimensionLayout,
+    toggleDimensionExtract,
+    extractDimensions,
+    switchLayoutView,
+  };
 }
 ```
 
-## Scenario 3: Toggle Auto-Layout During Manual Annotation
+## Scenario 3: Blocking UI During Processing
 
 ### Problem
 
-User starts with auto-layout OFF, creates 5 manual annotations, then toggles auto-layout ON. Should it re-scan the page?
+User tries to edit annotations while auto-processing is active.
 
-### Solution: Non-Destructive Auto-Layout
+### Solution: Lock Page with Overlay
 
 ```mermaid
 graph TD
-    A[5 Manual Annotations Exist] --> B[User: Toggle Auto-Layout ON]
-    B --> C[Show Confirmation Dialog]
+    A[Auto-Processing Started] --> B[Set Page Status: PROCESSING]
+    B --> C[Set isLocked: true]
+    C --> D[Render Lock Overlay]
 
-    C --> D{User Choice}
-    D -->|Re-scan| E[Queue layout_detection_task]
-    D -->|Skip| F[Keep Manual Only]
-    D -->|Merge| G[Smart Merge Mode]
+    D --> E[Show Progress Indicator]
+    E --> F[Disable Annotation Tools]
+    F --> G[Block Click Events]
 
-    E --> H[Detect All Bounding Boxes]
-    H --> I[Compare with Manual Boxes]
-    I --> J{Overlap Detected?}
+    H[User Attempts Edit] --> I{Page Locked?}
+    I -->|Yes| J[Show Toast: Page is Processing]
+    I -->|No| K[Allow Edit]
 
-    J -->|Yes| K[Mark Auto as Supplementary]
-    J -->|No| L[Add Auto Boxes]
+    L[Processing Complete] --> M[Set Page Status: COMPLETED]
+    M --> N[Set isLocked: false]
+    N --> O[Remove Overlay]
+    O --> P[Enable Annotation Tools]
 
-    G --> H
-    K --> M[Show Both: Manual Primary, Auto Secondary]
-    L --> M
-
-    F --> N[No Auto-Layout, Manual Only]
-
-    M --> O[User Can Promote/Demote Boxes]
-    O --> P[Update Priorities in MongoDB]
-
-    style B fill:#2563eb,stroke:#1e40af,stroke-width:2px,color:#fff
-    style C fill:#f59e0b,stroke:#d97706,stroke-width:2px,color:#fff
-    style E fill:#8b5cf6,stroke:#7c3aed,stroke-width:2px,color:#fff
-    style G fill:#10b981,stroke:#059669,stroke-width:2px,color:#fff
+    style A fill:#8b5cf6,stroke:#7c3aed,stroke-width:2px,color:#fff
+    style B fill:#dc2626,stroke:#b91c1c,stroke-width:2px,color:#fff
+    style C fill:#dc2626,stroke:#b91c1c,stroke-width:2px,color:#fff
+    style D fill:#dc2626,stroke:#b91c1c,stroke-width:2px,color:#fff
+    style J fill:#f59e0b,stroke:#d97706,stroke-width:2px,color:#fff
     style M fill:#16a34a,stroke:#15803d,stroke-width:2px,color:#fff
+    style P fill:#16a34a,stroke:#15803d,stroke-width:2px,color:#fff
 ```
 
-### Implementation: Smart Toggle Dialog
+### Implementation: Page Lock Component
 
 ```tsx
-// components/AutoLayoutToggleDialog.tsx
+// components/PageLockOverlay.tsx
 "use client";
 
-import { useState } from "react";
 import { useFileStore } from "@/store/fileStore";
-import _ from "lodash";
+import { Loader2, Lock } from "lucide-react";
+import { Progress } from "@/components/ui/progress";
 
-interface Props {
+export function PageLockOverlay({
+  fileId,
+  pageNumber,
+}: {
   fileId: string;
-  onConfirm: (mode: "replace" | "merge" | "skip") => void;
-  onCancel: () => void;
-}
-
-export function AutoLayoutToggleDialog({ fileId, onConfirm, onCancel }: Props) {
+  pageNumber: number;
+}) {
   const { files } = useFileStore();
-  const [mode, setMode] = useState<"replace" | "merge" | "skip">("merge");
+  const page = _.find(files[fileId]?.pages, { pageNumber });
 
-  // Count existing manual annotations
-  const manualCount = _.chain(files[fileId]?.pages)
-    .flatMap("annotations")
-    .filter({ source: "manual" })
-    .size()
-    .value();
+  if (!page?.isLocked) return null;
+
+  const getStatusMessage = () => {
+    switch (page.processingState) {
+      case "layout-detection":
+        return "Detecting bounding boxes...";
+      case "extracting":
+        return "Extracting data...";
+      case "dimension-detection":
+        return "Detecting dimensions...";
+      default:
+        return "Processing...";
+    }
+  };
 
   return (
-    <Dialog open>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Enable Auto-Layout Detection?</DialogTitle>
-          <DialogDescription>
-            You have {manualCount} existing manual annotations. How should
-            auto-layout handle them?
-          </DialogDescription>
-        </DialogHeader>
+    <div className="absolute inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center">
+      <div className="bg-card p-6 rounded-lg shadow-lg max-w-md w-full">
+        <div className="flex items-center gap-3 mb-4">
+          <Lock className="w-6 h-6 text-orange-500" />
+          <h3 className="text-lg font-semibold">Page Locked</h3>
+        </div>
 
-        <RadioGroup value={mode} onValueChange={setMode}>
-          <div className="flex items-start space-x-2">
-            <RadioGroupItem value="merge" id="merge" />
-            <Label htmlFor="merge" className="cursor-pointer">
-              <div className="font-medium">Smart Merge (Recommended)</div>
-              <p className="text-sm text-muted-foreground">
-                Keep manual annotations as primary. Add auto-detected boxes that
-                don't overlap with manual ones.
-              </p>
-            </Label>
-          </div>
+        <p className="text-sm text-muted-foreground mb-4">
+          {getStatusMessage()}
+        </p>
 
-          <div className="flex items-start space-x-2">
-            <RadioGroupItem value="replace" id="replace" />
-            <Label htmlFor="replace" className="cursor-pointer">
-              <div className="font-medium">Replace All</div>
-              <p className="text-sm text-muted-foreground">
-                Remove manual annotations and run fresh auto-layout detection.
-                <span className="text-destructive font-semibold">
-                  {" "}
-                  (Cannot be undone)
-                </span>
-              </p>
-            </Label>
-          </div>
+        {page.progress !== undefined && (
+          <Progress value={page.progress} className="mb-2" />
+        )}
 
-          <div className="flex items-start space-x-2">
-            <RadioGroupItem value="skip" id="skip" />
-            <Label htmlFor="skip" className="cursor-pointer">
-              <div className="font-medium">Skip Auto-Layout</div>
-              <p className="text-sm text-muted-foreground">
-                Keep setting OFF. Only use manual annotations.
-              </p>
-            </Label>
-          </div>
-        </RadioGroup>
-
-        <DialogFooter>
-          <Button variant="outline" onClick={onCancel}>
-            Cancel
-          </Button>
-          <Button onClick={() => onConfirm(mode)}>
-            {mode === "skip" ? "Keep OFF" : "Continue"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <Loader2 className="w-4 h-4 animate-spin" />
+          <span>Manual edits are temporarily blocked</span>
+        </div>
+      </div>
+    </div>
   );
 }
 ```
 
-## API Endpoint: Create Annotation with Conflict Resolution
+## Database Schema Updates
 
-### POST /create-annotation
+### data_versions_collection (Data Extraction Versions)
+
+```javascript
+{
+  _id: "data_ver_001",
+  versionId: "data_ver_001",
+  type: "data",  // Identifies as data version
+  fileId: "file_abc123",
+  pageNumber: 3,
+  versionNumber: 1,
+  isActive: true,
+  isDraft: false,
+  baseVersionId: null,  // For version 2+, this points to version 1
+
+  annotations: [
+    {
+      annId: "ann_001",
+      type: "text",
+      bbox: [100, 200, 400, 250],
+      extractedData: {
+        text: "Drawing Title",
+        confidence: 0.95
+      }
+    }
+  ],
+
+  createdAt: ISODate("2025-10-09T10:00:00Z"),
+  updatedAt: ISODate("2025-10-09T10:15:00Z")
+}
+```
+
+### dimension_versions_collection (Dimension Extraction Versions)
+
+```javascript
+{
+  _id: "dim_ver_001",
+  versionId: "dim_ver_001",
+  type: "dimension",  // Identifies as dimension version
+  fileId: "file_abc123",
+  pageNumber: 3,
+  versionNumber: 1,
+  isActive: true,
+  isDraft: false,
+  baseVersionId: null,
+
+  annotations: [
+    {
+      annId: "dim_ann_001",
+      type: "dimension",
+      bbox: [50, 180, 200, 220],
+      extractedData: {
+        width: "150mm",
+        height: "40mm",
+        unit: "mm",
+        confidence: 0.92
+      }
+    }
+  ],
+
+  createdAt: ISODate("2025-10-09T10:20:00Z"),
+  updatedAt: ISODate("2025-10-09T10:22:00Z")
+}
+```
+
+### data_drafts_collection (Data Drafts)
+
+```javascript
+{
+  _id: "data_draft_001",
+  draftId: "data_draft_001",
+  type: "data",
+  fileId: "file_abc123",
+  pageNumber: 3,
+  baseVersionId: "data_ver_001",
+
+  annotations: [
+    {
+      annId: "ann_001",
+      type: "text",
+      bbox: [105, 205, 405, 255],  // Modified coordinates
+      changes: ["bbox"],
+      modifiedAt: ISODate("2025-10-09T10:20:00Z")
+    }
+  ],
+
+  createdAt: ISODate("2025-10-09T10:20:00Z"),
+  updatedAt: ISODate("2025-10-09T10:22:00Z")
+}
+```
+
+### dimension_drafts_collection (Dimension Drafts)
+
+```javascript
+{
+  _id: "dim_draft_001",
+  draftId: "dim_draft_001",
+  type: "dimension",
+  fileId: "file_abc123",
+  pageNumber: 3,
+  baseVersionId: "dim_ver_001",
+
+  annotations: [
+    {
+      annId: "dim_ann_001",
+      type: "dimension",
+      bbox: [52, 182, 202, 222],  // Modified coordinates
+      changes: ["bbox"],
+      modifiedAt: ISODate("2025-10-09T10:30:00Z")
+    }
+  ],
+
+  createdAt: ISODate("2025-10-09T10:30:00Z"),
+  updatedAt: ISODate("2025-10-09T10:32:00Z")
+}
+```
+
+### pages_collection (Updated)
+
+```javascript
+{
+  _id: "page_001",
+  fileId: "file_abc123",
+  pageNumber: 3,
+
+  // Processing states (can be independent)
+  dataProcessingState: "completed",  // idle | layout-detection-data | extracting-data | completed
+  dimensionProcessingState: "extracting-dimensions",  // idle | layout-detection-dimensions | extracting-dimensions | completed
+
+  isLocked: false,  // UI lock status (true if ANY processing is active)
+  progress: 85,  // 0-100 percentage (combined progress)
+
+  // Active versions (independent)
+  activeDataVersionId: "data_ver_001",
+  activeDimensionVersionId: "dim_ver_001",
+
+  // Draft flags (independent)
+  hasDataDraft: false,
+  hasDimensionDraft: true,
+
+  createdAt: ISODate("2025-10-09T10:00:00Z"),
+  updatedAt: ISODate("2025-10-09T10:25:00Z")
+}
+```
+
+## API Endpoint: Extract Draft
+
+### POST /extract-draft
 
 ```python
-# backend/routes/annotations.py
+# backend/routes/versions.py
 from fastapi import APIRouter, HTTPException, Depends
-from typing import List, Optional
+from typing import List
 import uuid
 from datetime import datetime
 
 router = APIRouter()
 
-@router.post("/create-annotation")
-async def create_annotation(
+@router.post("/extract-draft")
+async def extract_draft(
     payload: dict,
     user_id: str = Depends(get_current_user)
 ):
     file_id = payload["fileId"]
     page_number = payload["pageNumber"]
-    bbox = payload["bbox"]
-    ann_type = payload["type"]
-    source = payload.get("source", "manual")  # manual | auto-layout
-    priority = payload.get("priority", "normal")  # manual | normal
-    supersedes = payload.get("supersedes", [])  # List of annIds to mark as superseded
+    draft_id = payload["draftId"]
+    annotations = payload["annotations"]
+    auto_dimensions = payload.get("autoDimensions", False)
 
     # Validate ownership
     file_doc = await mongo_db.files.find_one({"_id": file_id, "userId": user_id})
     if not file_doc:
         raise HTTPException(404, "File not found")
 
-    # Generate annotation ID
-    ann_id = payload.get("annId") or str(uuid.uuid4())
+    # Get draft
+    draft_doc = await mongo_db.drafts.find_one({"_id": draft_id})
+    if not draft_doc:
+        raise HTTPException(404, "Draft not found")
 
-    # Check for active auto-processing
-    active_layout_batch = await mongo_db.batches.find_one({
-        "fileId": file_id,
-        "type": "auto-layout",
-        "status": {"$in": ["pending", "processing"]}
-    })
+    # Lock page
+    await mongo_db.pages.update_one(
+        {"fileId": file_id, "pageNumber": page_number},
+        {"$set": {
+            "processingState": "extracting",
+            "isLocked": True,
+            "progress": 0
+        }}
+    )
 
-    # If superseding other annotations, mark them
-    if supersedes:
-        await mongo_db.annotations.update_many(
-            {"annId": {"$in": supersedes}},
-            {"$set": {
-                "status": "superseded",
-                "supersededBy": ann_id,
-                "supersededAt": datetime.utcnow()
-            }}
-        )
-
-    # Create annotation document
-    annotation = {
-        "_id": ann_id,
-        "annId": ann_id,
+    # Get active version
+    active_version = await mongo_db.versions.find_one({
         "fileId": file_id,
         "pageNumber": page_number,
-        "type": ann_type,
-        "bbox": bbox,
-        "source": source,
-        "priority": priority,
-        "status": "detected",
-        "extractedData": None,
-        "createdAt": datetime.utcnow(),
-        "updatedAt": datetime.utcnow(),
-        "createdDuringAutoProcess": bool(active_layout_batch),
-    }
+        "isActive": True
+    })
 
-    await mongo_db.annotations.insert_one(annotation)
+    # Create new version
+    new_version_number = (active_version["versionNumber"] if active_version else 0) + 1
+    version_id = str(uuid.uuid4())
+
+    # Queue extraction task
+    batch_id = str(uuid.uuid4())
+    extraction_task.apply_async(
+        args=[file_id, page_number, annotations, version_id, auto_dimensions],
+        task_id=batch_id
+    )
+
+    # Store batch
+    await mongo_db.batches.insert_one({
+        "_id": batch_id,
+        "batchId": batch_id,
+        "fileId": file_id,
+        "pageNumber": page_number,
+        "type": "draft-extraction",
+        "status": "processing",
+        "versionId": version_id,
+        "autoDimensions": auto_dimensions,
+        "createdAt": datetime.utcnow()
+    })
 
     # Emit Pusher event
     pusher_client.trigger(
         channel=f"user-{user_id}",
-        event="annotation-created",
+        event="draft-extraction-started",
         data={
             "fileId": file_id,
             "pageNumber": page_number,
-            "annotation": annotation,
-            "superseded": supersedes,
+            "batchId": batch_id,
+            "versionNumber": new_version_number
         }
     )
 
     return {
         "success": True,
-        "annId": ann_id,
-        "superseded": supersedes,
+        "versionId": version_id,
+        "batchId": batch_id,
+        "versionNumber": new_version_number
     }
-```
-
-## Database Schema Updates
-
-### annotations_collection
-
-```javascript
-{
-  _id: "ann_001",
-  annId: "ann_001",
-  fileId: "file_abc123",
-  pageNumber: 3,
-  type: "text",
-  bbox: [100, 200, 400, 250],
-
-  // Source tracking
-  source: "manual",  // manual | auto-layout
-  priority: "normal",  // manual | normal
-
-  // Status tracking
-  status: "detected",  // detected | processing | completed | superseded | failed
-
-  // Conflict resolution
-  supersededBy: null,  // annId that replaced this
-  supersededAt: null,  // ISODate when superseded
-  createdDuringAutoProcess: false,  // Was auto-processing active when created?
-
-  // Extraction data
-  extractedData: null,
-
-  createdAt: ISODate("2025-10-09T10:00:00Z"),
-  updatedAt: ISODate("2025-10-09T10:05:00Z")
-}
-```
-
-### files_collection (Add Settings)
-
-```javascript
-{
-  _id: "file_abc123",
-  userId: "user_123",
-  fileName: "drawing.pdf",
-  blobUrl: "https://...",
-
-  // User settings
-  settings: {
-    autoLayout: true,
-    autoExtraction: false,
-    processingState: "layout-detection"  // idle | layout-detection | extracting | completed
-  },
-
-  createdAt: ISODate("2025-10-09T10:00:00Z")
-}
-```
-
-### batches_collection (Add Type)
-
-```javascript
-{
-  _id: "batch_xyz789",
-  batchId: "batch_xyz789",
-  userId: "user_123",
-  fileId: "file_abc123",
-
-  type: "auto-layout",  // auto-layout | extraction | manual-extraction
-  trigger: "upload",  // upload | auto-extract-toggle | user-action
-
-  status: "processing",
-  progress: 45,
-  totalItems: 10,
-  completedItems: 4,
-
-  // Cancellation support
-  cancellable: true,
-  cancelledAt: null,
-
-  createdAt: ISODate("2025-10-09T10:00:00Z")
-}
 ```
 
 ## Settings UI Component
@@ -783,173 +1017,320 @@ async def create_annotation(
 "use client";
 
 import { useSettingsStore } from "@/store/settingsStore";
-import { useFileStore } from "@/store/fileStore";
-import { useProgressiveExtraction } from "@/hooks/useProgressiveExtraction";
+import { useDimensionDetection } from "@/hooks/useDimensionDetection";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import _ from "lodash";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 
-export function FileSettings({ fileId }: { fileId: string }) {
+export function FileSettings({
+  fileId,
+  pageNumber,
+}: {
+  fileId: string;
+  pageNumber: number;
+}) {
   const settings = useSettingsStore((state) => state.getFileSettings(fileId));
-  const { toggleAutoLayout, toggleAutoExtraction } = useSettingsStore();
-  const { toggleAutoExtraction: handleExtractionToggle } =
-    useProgressiveExtraction(fileId);
-  const { files } = useFileStore();
-
-  const [showLayoutDialog, setShowLayoutDialog] = useState(false);
-
-  const manualAnnotations = _.chain(files[fileId]?.pages)
-    .flatMap("annotations")
-    .filter({ source: "manual" })
-    .value();
-
-  const handleLayoutToggle = () => {
-    if (!settings.autoLayout && manualAnnotations.length > 0) {
-      // Show dialog if turning ON with existing manual annotations
-      setShowLayoutDialog(true);
-    } else {
-      toggleAutoLayout(fileId);
-    }
-  };
-
-  const handleLayoutConfirm = async (mode: "replace" | "merge" | "skip") => {
-    setShowLayoutDialog(false);
-
-    if (mode === "skip") return;
-
-    toggleAutoLayout(fileId);
-
-    // Trigger layout detection with mode
-    await fetch("/api/trigger-layout-detection", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ fileId, mode }),
-    });
-  };
+  const { toggleAutoLayoutData, toggleAutoExtractData } = useSettingsStore();
+  const {
+    autoLayoutDimensions,
+    autoExtractDimensions,
+    layoutView,
+    hasDimensions,
+    isLocked,
+    toggleDimensionLayout,
+    toggleDimensionExtract,
+    extractDimensions,
+    switchLayoutView,
+  } = useDimensionDetection(fileId, pageNumber);
 
   return (
-    <div className="space-y-4 p-4 border rounded-lg">
-      <h3 className="font-semibold text-lg">Processing Settings</h3>
-
+    <div className="space-y-6 p-4 border rounded-lg">
+      {/* Header */}
       <div className="flex items-center justify-between">
-        <div className="space-y-0.5">
-          <Label htmlFor="auto-layout">Auto-Layout Detection</Label>
-          <p className="text-sm text-muted-foreground">
-            Automatically detect bounding boxes on upload
-          </p>
-        </div>
-        <Switch
-          id="auto-layout"
-          checked={settings.autoLayout}
-          onCheckedChange={handleLayoutToggle}
-        />
+        <h3 className="font-semibold text-lg">Processing Settings</h3>
+        {settings.processingState !== "idle" &&
+          settings.processingState !== "completed" && (
+            <Badge variant="outline" className="bg-orange-500/10">
+              {settings.processingState.replace("-", " ")}
+            </Badge>
+          )}
       </div>
 
-      <div className="flex items-center justify-between">
-        <div className="space-y-0.5">
-          <Label htmlFor="auto-extract">Auto-Extraction</Label>
-          <p className="text-sm text-muted-foreground">
-            Automatically extract data from detected boxes
-          </p>
+      {/* Data Extraction Settings */}
+      <div className="space-y-4">
+        <h4 className="font-medium text-sm text-muted-foreground">
+          Data Extraction
+        </h4>
+
+        <div className="flex items-center justify-between">
+          <div className="space-y-0.5">
+            <Label htmlFor="auto-layout-data">Auto-Layout Detection</Label>
+            <p className="text-sm text-muted-foreground">
+              Automatically detect data bounding boxes
+            </p>
+          </div>
+          <Switch
+            id="auto-layout-data"
+            checked={settings.autoLayoutData}
+            onCheckedChange={() => toggleAutoLayoutData(fileId)}
+          />
         </div>
-        <Switch
-          id="auto-extract"
-          checked={settings.autoExtraction}
-          onCheckedChange={handleExtractionToggle}
-          disabled={!settings.autoLayout}
-        />
+
+        <div className="flex items-center justify-between">
+          <div className="space-y-0.5">
+            <Label htmlFor="auto-extract-data">Auto-Extract Data</Label>
+            <p className="text-sm text-muted-foreground">
+              Automatically extract data from detected boxes
+            </p>
+          </div>
+          <Switch
+            id="auto-extract-data"
+            checked={settings.autoExtractData}
+            onCheckedChange={() => toggleAutoExtractData(fileId)}
+            disabled={!settings.autoLayoutData}
+          />
+        </div>
       </div>
 
-      {settings.processingState !== "idle" && (
-        <div className="text-sm text-muted-foreground">
-          Status:{" "}
-          <span className="font-medium capitalize">
-            {settings.processingState.replace("-", " ")}
-          </span>
-        </div>
-      )}
+      {/* Dimension Detection Settings */}
+      <div className="space-y-4 pt-4 border-t">
+        <h4 className="font-medium text-sm text-muted-foreground">
+          Dimension Detection
+        </h4>
 
-      {showLayoutDialog && (
-        <AutoLayoutToggleDialog
-          fileId={fileId}
-          onConfirm={handleLayoutConfirm}
-          onCancel={() => setShowLayoutDialog(false)}
-        />
+        <div className="flex items-center justify-between">
+          <div className="space-y-0.5">
+            <Label htmlFor="auto-layout-dimensions">
+              Auto-Layout Dimensions
+            </Label>
+            <p className="text-sm text-muted-foreground">
+              Automatically detect dimension bounding boxes
+            </p>
+          </div>
+          <Switch
+            id="auto-layout-dimensions"
+            checked={autoLayoutDimensions}
+            onCheckedChange={toggleDimensionLayout}
+            disabled={isLocked}
+          />
+        </div>
+
+        <div className="flex items-center justify-between">
+          <div className="space-y-0.5">
+            <Label htmlFor="auto-extract-dimensions">
+              Auto-Extract Dimensions
+            </Label>
+            <p className="text-sm text-muted-foreground">
+              Automatically extract dimension data from boxes
+            </p>
+          </div>
+          <Switch
+            id="auto-extract-dimensions"
+            checked={autoExtractDimensions}
+            onCheckedChange={toggleDimensionExtract}
+            disabled={!autoLayoutDimensions || isLocked}
+          />
+        </div>
+
+        {/* Manual Extract Button (when auto-extract is OFF) */}
+        {autoLayoutDimensions && !autoExtractDimensions && (
+          <Button
+            onClick={extractDimensions}
+            variant="outline"
+            size="sm"
+            disabled={isLocked || !hasDimensions}
+            className="w-full"
+          >
+            Extract Dimensions Manually
+          </Button>
+        )}
+      </div>
+
+      {/* Layout View Toggle */}
+      {hasDimensions && (
+        <div className="pt-4 border-t">
+          <Label className="mb-2 block">Layout View</Label>
+          <div className="flex gap-2">
+            <Button
+              variant={layoutView === "data" ? "default" : "outline"}
+              onClick={switchLayoutView}
+              size="sm"
+              className="flex-1"
+            >
+              Data
+            </Button>
+            <Button
+              variant={layoutView === "dimensions" ? "default" : "outline"}
+              onClick={switchLayoutView}
+              size="sm"
+              className="flex-1"
+            >
+              Dimensions
+            </Button>
+          </div>
+        </div>
       )}
     </div>
   );
 }
 ```
 
-## Pusher Events for User Control
+## Draft Indicator UI
 
-### annotation-created Event
+```tsx
+// components/DraftIndicator.tsx
+"use client";
+
+import { useDraftManager } from "@/hooks/useDraftManager";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { AlertCircle } from "lucide-react";
+
+export function DraftIndicator({
+  fileId,
+  pageNumber,
+}: {
+  fileId: string;
+  pageNumber: number;
+}) {
+  const { hasDraft, isLocked, extractDraft, discardDraft } = useDraftManager(
+    fileId,
+    pageNumber
+  );
+
+  if (!hasDraft) return null;
+
+  return (
+    <div className="fixed bottom-4 right-4 bg-card p-4 rounded-lg shadow-lg border border-orange-500 z-40">
+      <div className="flex items-center gap-2 mb-3">
+        <AlertCircle className="w-5 h-5 text-orange-500" />
+        <div>
+          <Badge variant="outline" className="bg-orange-500/10">
+            Draft
+          </Badge>
+          <p className="text-sm text-muted-foreground mt-1">
+            You have unsaved changes
+          </p>
+        </div>
+      </div>
+
+      <div className="flex gap-2">
+        <Button
+          onClick={discardDraft}
+          variant="outline"
+          size="sm"
+          disabled={isLocked}
+        >
+          Discard
+        </Button>
+        <Button onClick={extractDraft} size="sm" disabled={isLocked}>
+          {isLocked ? "Processing..." : "Extract & Save"}
+        </Button>
+      </div>
+    </div>
+  );
+}
+```
+
+## Pusher Events
+
+### extraction-complete Event
 
 ```json
 {
-  "event": "annotation-created",
+  "event": "extraction-complete",
   "channel": "user-{userId}",
   "data": {
     "fileId": "file_abc123",
     "pageNumber": 3,
-    "annotation": {
-      "annId": "man_001",
-      "type": "text",
-      "bbox": [100, 200, 400, 250],
-      "source": "manual",
-      "priority": "manual",
-      "createdDuringAutoProcess": true
-    },
-    "superseded": ["ann_002", "ann_003"]
+    "versionId": "ver_002",
+    "versionNumber": 2,
+    "draftId": "draft_001",
+    "completedAt": "2025-10-09T10:25:00Z"
   }
 }
 ```
 
-### batch-cancelled Event
+### dimension-complete Event
 
 ```json
 {
-  "event": "batch-cancelled",
+  "event": "dimension-complete",
   "channel": "user-{userId}",
   "data": {
-    "batchId": "batch_xyz789",
     "fileId": "file_abc123",
-    "type": "extraction",
-    "reason": "user-toggle-off",
-    "completedItems": 7,
-    "cancelledItems": 3,
-    "cancelledAt": "2025-10-09T10:30:00Z"
+    "pageNumber": 3,
+    "versionId": "ver_001",
+    "annotations": [
+      {
+        "annId": "ann_001",
+        "dimensions": {
+          "width": 300,
+          "height": 50,
+          "unit": "px"
+        }
+      }
+    ],
+    "completedAt": "2025-10-09T10:15:00Z"
+  }
+}
+```
+
+### page-unlocked Event
+
+```json
+{
+  "event": "page-unlocked",
+  "channel": "user-{userId}",
+  "data": {
+    "fileId": "file_abc123",
+    "pageNumber": 3,
+    "processingState": "completed",
+    "activeVersionId": "ver_001",
+    "unlockedAt": "2025-10-09T10:15:00Z"
   }
 }
 ```
 
 ## Performance Considerations
 
-### 1. Debounce Settings Changes
+### 1. Lock/Unlock Mechanism
+
+- Use optimistic UI updates with server reconciliation
+- Show spinner overlay during processing
+- Disable all edit tools (draw, edit, delete)
+- Show progress indicator for long-running tasks
+
+### 2. Draft Auto-Save
 
 ```tsx
-const debouncedToggle = _.debounce(toggleAutoExtraction, 500);
+const debouncedSave = _.debounce(saveAnnotationToDraft, 1000);
 ```
 
-### 2. Batch Conflict Checks
+### 3. Version History
 
-- Check overlaps in single MongoDB aggregation query
-- Use spatial indexes for bbox queries
+- Only store active version + draft in memory
+- Load older versions on-demand
+- Paginate version list if user has many iterations
 
-### 3. Progressive UI Updates
+### 4. Dimension Rendering
 
-- Don't re-render entire page on single annotation update
-- Use React.memo and selector patterns
+- Use canvas for dimension overlays
+- Cache dimension calculations
+- Toggle view without re-fetching data
+- Lazy load dimension data when view is switched
 
-### 4. Cancel Gracefully
+### 5. Blocking UI
 
-- Allow ongoing extraction tasks to complete
-- Don't abort mid-extraction
-- Save partial results
+- Prevent click events with `pointer-events: none`
+- Show visual feedback (overlay + spinner)
+- Disable toolbar buttons
+- Queue user actions and retry after unlock
 
 ## Related Documentation
 
 - **[File Upload Flow →](/v3-iteration/file-upload-flow)** - Initial settings during upload
 - **[File Page Flow →](/v3-iteration/file-page-flow)** - Real-time updates during processing
-- **[State Management →](/v3-iteration/state-management)** - Settings store integration
+- **[State Management →](/v3-iteration/state-management)** - Settings and version stores
 - **[API Architecture →](/v3-iteration/api-architecture)** - Backend processing logic
